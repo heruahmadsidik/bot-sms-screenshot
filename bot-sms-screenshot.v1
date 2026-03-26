@@ -135,7 +135,7 @@ async function screenshotSMS(nomor, nama, rowIndex) {
       const stat = fs.statSync(filePath);
       const imgPath = "/screenshots/" + fileName;
       lastImages.unshift({
-        src: imgPath, name: nama,
+        src: imgPath, name: nama, nomor: nomor,
         time: new Date().toLocaleTimeString("id-ID", { hour12: false }),
         size: (stat.size / 1024).toFixed(1) + " KB"
       });
@@ -187,20 +187,29 @@ async function processAll() {
 // ================= API =================
 app.get("/start",  (req, res) => {
   if (!checkDevice()) return res.json({ ok: false, msg: "Device tidak terdeteksi" });
+  lastImages = []; // reset gallery on new start
   processAll();
   res.json({ ok: true });
 });
 app.get("/stop",   (req, res) => { stopRequested = true; res.json({ ok: true }); });
 app.get("/logs",   (req, res) => res.json(logs));
-app.get("/status", (req, res) => res.json({ progress, done, total, failed, running: isRunning, lastImages }));
+app.get("/status", (req, res) => {
+  const doneC = sheetData.filter(r => r[2] === 'DONE').length;
+  const failC = sheetData.filter(r => r[2] === 'FAILED').length;
+  const pendC = sheetData.filter(r => !r[2] || r[2] === '' || r[2] === 'READY').length;
+  res.json({ progress, done, total, failed, running: isRunning, lastImages, counts: { total: sheetData.length, done: doneC, pending: pendC, failed: failC } });
+});
 app.post("/config", (req, res) => {
   const b = req.body || {};
   if (b.delay) CONFIG.delay = parseInt(b.delay) * 1000;
   if (b.retry) CONFIG.retry = parseInt(b.retry);
   if (b.adbPath) CONFIG.adbPath = b.adbPath;
+  if (b.ssDir) CONFIG.ssDir = b.ssDir;
+  if (b.projDir) CONFIG.projDir = b.projDir;
   addLog("⚙ Konfigurasi disimpan", "info");
-  res.json({ ok: true });
+  res.json({ ok: true, config: CONFIG });
 });
+app.get("/config", (req, res) => res.json(CONFIG));
 
 // ================= UI =================
 app.get("/", (req, res) => {
@@ -217,7 +226,7 @@ app.get("/", (req, res) => {
   --bg:#0a0f1a; --bg2:#0d1525; --bg3:#111d30;
   --border:#1e2d45; --border2:#243550;
   --cyan:#00d4ff; --green:#00e676; --red:#ff3d57; --amber:#ffab00; --purple:#7c4dff;
-  --text:#cdd9ee; --text2:#7a90b0; --text3:#3d5070;
+  --text:#e8edf8; --text2:#b0c4de; --text3:#7a90b0;
   --mono:'Share Tech Mono',monospace; --body:'Exo 2',sans-serif; --orb:'Orbitron',monospace;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -228,30 +237,35 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 
-.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 16px 40px;}
+/* FULL WIDTH */
+.wrap{position:relative;z-index:1;max-width:1600px;margin:0 auto;padding:0 24px 40px;}
 
-/* HERO */
-.hero{text-align:center;padding:28px 0 20px;position:relative;}
-.hero::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:200px;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);}
-.hero-title{font-family:var(--orb);font-size:36px;font-weight:800;color:var(--cyan);letter-spacing:8px;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;}
+/* HERO - redesigned as top bar */
+.hero{display:flex;align-items:center;justify-content:space-between;padding:16px 0 14px;position:relative;}
+.hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);}
+.hero-left{display:flex;align-items:center;gap:14px;}
+.hero-adb-info{display:flex;flex-direction:column;gap:2px;}
+.hero-adb-label{font-family:var(--orb);font-size:10px;color:var(--cyan);letter-spacing:1px;}
+.hero-adb-port{font-family:var(--mono);font-size:10px;color:var(--text3);}
+.hero-adb-icon{width:36px;height:36px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.hero-divider{width:1px;height:36px;background:var(--border2);}
+.hero-center{text-align:center;flex:1;}
+.hero-title{font-family:var(--orb);font-size:30px;font-weight:800;color:var(--cyan);letter-spacing:6px;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;}
 @keyframes tglow{0%,100%{text-shadow:0 0 20px rgba(0,212,255,.4),0 0 50px rgba(0,212,255,.15);}50%{text-shadow:0 0 35px rgba(0,212,255,.7),0 0 80px rgba(0,212,255,.3);}}
-.hero-sub{font-family:var(--orb);font-size:11px;letter-spacing:5px;color:var(--text2);margin-top:4px;}
-.hero-org{font-size:11px;letter-spacing:3px;color:var(--text3);margin-top:2px;}
-.hero-dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);margin:10px auto 0;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
+.hero-sub{font-family:var(--orb);font-size:10px;letter-spacing:4px;color:var(--text2);margin-top:3px;}
+.hero-org{font-size:10px;letter-spacing:2px;color:var(--text3);margin-top:1px;}
+.hero-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);margin:6px auto 0;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+.hero-device-badge{font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:6px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:8px;background:rgba(0,230,118,.05);}
+.hero-device-badge.off{border-color:var(--red);color:var(--red);background:rgba(255,61,87,.05);}
+.hero-device-detail{font-family:var(--mono);font-size:10px;color:var(--text3);text-align:right;}
 
-/* ADB PANEL */
-.adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:18px;overflow:hidden;}
-.adb-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg3);border-bottom:1px solid var(--border);}
-.adb-header-left{display:flex;align-items:center;gap:10px;}
-.adb-icon{width:34px;height:34px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
-.adb-label{font-family:var(--orb);font-size:12px;color:var(--cyan);letter-spacing:1px;}
-.adb-port{font-family:var(--mono);font-size:10px;color:var(--text3);}
-.adb-badge{font-family:var(--mono);font-size:10px;padding:4px 12px;border-radius:4px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:6px;}
-.adb-badge.off{border-color:var(--red);color:var(--red);}
-.adb-body{display:grid;grid-template-columns:auto 1fr auto;align-items:center;padding:14px 20px;gap:0;}
-.dev-icon-wrap{padding-right:16px;border-right:1px solid var(--border);margin-right:16px;}
-.dev-icon{width:44px;height:70px;border:2px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;background:linear-gradient(180deg,rgba(0,212,255,.05),transparent);}
+/* ADB PANEL - streamlined */
+.adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden;}
+.adb-body{display:flex;align-items:center;padding:12px 20px;gap:16px;}
+.dev-icon{width:40px;height:64px;border:2px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;background:linear-gradient(180deg,rgba(0,212,255,.05),transparent);flex-shrink:0;}
+.dev-info{flex:1;}
 .dev-name{font-weight:600;font-size:14px;color:var(--text);}
 .dev-serial{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;}
 .dev-tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
@@ -259,21 +273,19 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .tg{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);}
 .tc{background:rgba(0,212,255,.1);color:var(--cyan);border:1px solid rgba(0,212,255,.3);}
 .ta{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);}
-.prog-sec{padding-left:16px;border-left:1px solid var(--border);margin-left:16px;min-width:190px;}
+.prog-sec{padding-left:16px;border-left:1px solid var(--border);min-width:200px;}
 .prog-lbl{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
-.prog-nums{font-family:var(--orb);font-size:20px;color:var(--cyan);}
+.prog-nums{font-family:var(--orb);font-size:22px;color:var(--cyan);}
 .prog-sub{font-size:11px;color:var(--text3);margin-top:1px;}
 .prog-bar{height:5px;background:rgba(0,212,255,.1);border-radius:3px;overflow:hidden;margin-top:8px;}
 .prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),rgba(0,212,255,.6));border-radius:3px;transition:width .6s;box-shadow:0 0 8px rgba(0,212,255,.5);width:0%;}
-.btn-row{display:flex;gap:10px;align-items:center;padding:12px 20px;border-top:1px solid var(--border);}
+.btn-row{display:flex;gap:10px;align-items:center;padding:10px 20px;border-top:1px solid var(--border);}
 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--body);font-size:13px;font-weight:600;padding:9px 20px;border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;}
 .btn:active{transform:scale(.97);}
 .btn-start{color:var(--green);border-color:var(--green);background:rgba(0,230,118,.08);}
 .btn-start:hover{background:rgba(0,230,118,.18);box-shadow:0 0 16px rgba(0,230,118,.3);}
 .btn-stop{color:var(--amber);border-color:var(--amber);background:rgba(255,171,0,.08);}
 .btn-stop:hover{background:rgba(255,171,0,.18);box-shadow:0 0 16px rgba(255,171,0,.3);}
-.btn-manual{color:var(--cyan);border-color:var(--cyan);background:rgba(0,212,255,.08);}
-.btn-manual:hover{background:rgba(0,212,255,.18);box-shadow:0 0 16px rgba(0,212,255,.3);}
 
 /* STAT CARDS */
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
@@ -283,18 +295,17 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .sc.cg::before{background:var(--green);box-shadow:0 0 8px var(--green);}
 .sc.ca::before{background:var(--amber);box-shadow:0 0 8px var(--amber);}
 .sc.cr::before{background:var(--red);box-shadow:0 0 8px var(--red);}
-.sc-lbl{font-size:10px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;}
+.sc-lbl{font-size:10px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;}
 .sc-val{font-family:var(--orb);font-size:38px;font-weight:800;line-height:1;margin:8px 0 4px;}
 .cc .sc-val{color:var(--cyan);text-shadow:0 0 20px rgba(0,212,255,.4);}
 .cg .sc-val{color:var(--green);text-shadow:0 0 20px rgba(0,230,118,.4);}
 .ca .sc-val{color:var(--amber);text-shadow:0 0 20px rgba(255,171,0,.4);}
 .cr .sc-val{color:var(--red);text-shadow:0 0 20px rgba(255,61,87,.4);}
 .sc-desc{font-size:11px;color:var(--text2);}
-.sc-bg{position:absolute;right:12px;bottom:10px;font-size:42px;opacity:.07;}
+.sc-bg{position:absolute;right:12px;bottom:10px;font-size:44px;opacity:1;filter:drop-shadow(0 0 4px rgba(255,255,255,.2));}
 
-/* TWO COL */
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
-.two-col-w{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-top:14px;}
+/* THREE COL LAYOUT - gallery left, config right */
+.three-col{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px;margin-top:14px;}
 
 /* PANEL */
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;}
@@ -313,29 +324,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mba:hover{background:rgba(255,171,0,.1);}
 .ml{font-family:var(--mono);font-size:10px;color:var(--text3);}
 
-/* STAT HARIAN */
-.sh-grid{display:grid;grid-template-columns:repeat(3,1fr);}
-.sh-item{text-align:center;padding:16px 8px;border-right:1px solid var(--border);}
-.sh-item:last-child{border-right:none;}
-.sh-icon{font-size:22px;margin-bottom:6px;}
-.sh-num{font-family:var(--orb);font-size:30px;font-weight:800;line-height:1;margin-bottom:2px;}
-.sht .sh-num{color:var(--cyan);}
-.sho .sh-num{color:var(--green);}
-.shf .sh-num{color:var(--red);}
-.sh-lbl{font-size:9px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;}
-.dist-sec{padding:10px 14px;border-top:1px solid var(--border);}
-.dist-lbl{font-size:10px;color:var(--text3);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;}
-.dist-row{margin-bottom:6px;}
-.dist-rl{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:3px;}
-.dist-bar{height:4px;border-radius:2px;background:rgba(255,255,255,.05);overflow:hidden;}
-.dg-fill{height:100%;background:var(--green);border-radius:2px;transition:width .6s;}
-.dr-fill{height:100%;background:var(--red);border-radius:2px;transition:width .6s;}
+/* GALLERY - scrollable, matching column height */
+.g-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;overflow-y:auto;max-height:600px;}
+.g-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);cursor:pointer;background:var(--bg);transition:all .2s;}
+.g-item:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,212,255,.2);}
+.g-item img{width:100%;height:auto;display:block;}
+.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.9));padding:18px 5px 5px;font-size:9px;color:#ddd;font-family:var(--mono);text-align:center;line-height:1.4;}
+.g-size{font-size:8px;color:var(--cyan);opacity:.9;}
+.g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12px;letter-spacing:1px;}
 
 /* MINI TABLE */
-.mt-wrap{padding:0 14px 12px;flex:1;overflow:auto;}
+.mt-wrap{padding:0 14px 12px;overflow-y:auto;max-height:600px;}
 .mt{width:100%;border-collapse:collapse;font-size:12px;}
-.mt th{text-align:left;font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:1px;padding:6px 8px;border-bottom:1px solid var(--border);font-weight:400;text-transform:uppercase;}
-.mt td{padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.5);}
+.mt th{text-align:left;font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:1px;padding:6px 8px;border-bottom:1px solid var(--border);font-weight:400;text-transform:uppercase;}
+.mt td{padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);}
 .mt tr:last-child td{border-bottom:none;}
 .mt tr:hover td{background:rgba(0,212,255,.03);}
 .bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
@@ -343,42 +345,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .bf{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
 
 /* CONFIG */
-.cfg-body{padding:14px;display:flex;flex-direction:column;gap:12px;}
+.cfg-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
 .cfg-grp{display:flex;flex-direction:column;gap:4px;}
-.cfg-lbl{font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;}
+.cfg-lbl{font-size:10px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;}
 .cfg-in{background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;width:100%;transition:border-color .2s;}
 .cfg-in:focus{outline:none;border-color:var(--cyan);}
 .cfg-pr{display:flex;gap:6px;}
 .cfg-pr .cfg-in{flex:1;}
-.bp{font-family:var(--mono);font-size:10px;padding:0 12px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;}
+.bp{font-family:var(--mono);font-size:10px;padding:0 10px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .2s;}
+.bp:hover{background:rgba(0,212,255,.2);}
 .btn-save{font-family:var(--body);font-weight:600;font-size:13px;padding:9px;border-radius:6px;border:1px solid rgba(0,212,255,.4);cursor:pointer;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,77,255,.2));color:var(--cyan);text-align:center;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
 .btn-save:hover{background:linear-gradient(135deg,rgba(0,212,255,.3),rgba(124,77,255,.3));box-shadow:0 0 14px rgba(0,212,255,.3);}
 
-/* FULL TABLE */
-.ft-section{margin-top:14px;}
-.tw{overflow-x:auto;}
-.ft{width:100%;border-collapse:collapse;font-size:13px;}
-.ft th{text-align:left;font-family:var(--mono);font-size:10px;font-weight:400;color:var(--text3);letter-spacing:1.5px;padding:9px 14px;border-bottom:1px solid var(--border);text-transform:uppercase;background:var(--bg3);}
-.ft td{padding:10px 14px;border-bottom:1px solid rgba(30,45,69,.5);}
-.ft tr:last-child td{border-bottom:none;}
-.ft tr:hover td{background:rgba(0,212,255,.03);}
-.nc{color:var(--text3);font-family:var(--mono);font-size:11px;}
-.nmc{font-weight:600;color:var(--text);}
-.noc{font-family:var(--mono);font-size:12px;color:var(--text2);}
-
-/* BOTTOM ROW */
-.bot-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
-
-/* GALLERY */
-.g-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;}
-.g-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);cursor:pointer;aspect-ratio:9/16;background:var(--bg);transition:all .2s;}
-.g-item:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,212,255,.2);transform:scale(1.02);}
-.g-item img{width:100%;height:100%;object-fit:cover;display:block;}
-.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:16px 5px 5px;font-size:9px;color:#ccc;font-family:var(--mono);text-align:center;line-height:1.4;}
-.g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12px;letter-spacing:1px;}
-
-/* LOG */
-.log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:var(--mono);font-size:11px;}
+/* TERMINAL LOG - fixed height */
+.log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:var(--mono);font-size:11px;max-height:280px;min-height:200px;}
 .le{display:flex;gap:8px;padding:2px 0;line-height:1.6;}
 .lt{color:var(--text3);flex-shrink:0;}
 .ltype{flex-shrink:0;font-size:10px;padding:0 5px;border-radius:2px;align-self:flex-start;margin-top:2px;}
@@ -386,9 +366,41 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .lwarn{background:rgba(255,171,0,.15);color:var(--amber);}
 .lerr{background:rgba(255,61,87,.15);color:var(--red);}
 .linf{background:rgba(0,212,255,.15);color:var(--cyan);}
-.llog{background:rgba(255,255,255,.05);color:var(--text3);}
-.lm{color:var(--text2);flex:1;}
+.llog{background:rgba(255,255,255,.05);color:var(--text2);}
+.lm{color:var(--text);flex:1;}
 .le.latest .lm{color:var(--cyan);}
+
+/* FULL TABLE */
+.ft-section{margin-top:14px;}
+.tw{overflow-x:auto;}
+.ft{width:100%;border-collapse:collapse;font-size:13px;}
+.ft th{text-align:left;font-family:var(--mono);font-size:10px;font-weight:400;color:var(--text2);letter-spacing:1.5px;padding:9px 14px;border-bottom:1px solid var(--border);text-transform:uppercase;background:var(--bg3);}
+.ft td{padding:10px 14px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);}
+.ft tr:last-child td{border-bottom:none;}
+.ft tr:hover td{background:rgba(0,212,255,.03);}
+.nc{color:var(--text2);font-family:var(--mono);font-size:11px;}
+.nmc{font-weight:600;color:var(--text);}
+.noc{font-family:var(--mono);font-size:12px;color:var(--text2);}
+
+/* BOTTOM ROW */
+.bot-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
+
+/* FOOTER */
+.footer{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 0 8px;border-top:1px solid var(--border);margin-top:20px;}
+.footer-left{display:flex;flex-direction:column;gap:4px;}
+.footer-gh{font-family:var(--mono);font-size:11px;color:var(--cyan);text-decoration:none;letter-spacing:.5px;display:flex;align-items:center;gap:6px;transition:all .2s;}
+.footer-gh:hover{color:#fff;text-shadow:0 0 10px var(--cyan);}
+.footer-gh::before{content:'⎇';font-size:13px;}
+.footer-right{text-align:right;}
+.footer-built{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:1px;}
+.footer-copy{font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono);}
+
+/* PROGRESS ANIMATION */
+@keyframes prog-pulse{0%,100%{box-shadow:0 0 6px rgba(0,212,255,.5);}50%{box-shadow:0 0 18px rgba(0,212,255,.9),0 0 30px rgba(0,212,255,.4);}}
+@keyframes prog-stripe{0%{background-position:0 0;}100%{background-position:40px 0;}}
+.prog-fill-active{background:repeating-linear-gradient(90deg,var(--cyan) 0px,rgba(0,212,255,.7) 10px,var(--cyan) 20px);background-size:40px 100%;animation:prog-stripe .6s linear infinite,prog-pulse 1.5s ease-in-out infinite;}
+.prog-nums-running{animation:numglow 1s ease-in-out infinite;}
+@keyframes numglow{0%,100%{text-shadow:0 0 8px rgba(0,212,255,.4);}50%{text-shadow:0 0 20px rgba(0,212,255,.9),0 0 40px rgba(0,212,255,.4);}}
 
 /* LIGHTBOX */
 #viewer{position:fixed;inset:0;background:rgba(5,8,15,.95);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:999;}
@@ -397,39 +409,49 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 #vImg{max-width:90vw;max-height:88vh;border-radius:8px;border:1px solid var(--border);box-shadow:0 0 60px rgba(0,212,255,.15);}
 .vcls{position:absolute;top:-12px;right:-12px;width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;font-size:13px;color:white;display:flex;align-items:center;justify-content:center;}
 .vcap{text-align:center;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text2);}
+
+/* HIDDEN FILE INPUT */
+#filePickerInput{display:none;}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<!-- HERO -->
+<!-- HERO TOP BAR -->
 <div class="hero">
-  <div class="hero-title">BOT SMS</div>
-  <div class="hero-sub">COMMAND CENTER</div>
-  <div class="hero-org">PLN UP2D Banten</div>
-  <div class="hero-dot"></div>
+  <!-- LEFT: ADB Info -->
+  <div class="hero-left">
+    <div class="hero-adb-icon">🤖</div>
+    <div class="hero-adb-info">
+      <div class="hero-adb-label">ADB Control Panel</div>
+      <div class="hero-adb-port">port 3000 · v2.0</div>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-adb-info">
+      <div class="hero-adb-label" style="color:var(--text2);">PLN UP2D Banten</div>
+      <div class="hero-adb-port">Bot Screenshot</div>
+    </div>
+  </div>
+
+  <!-- CENTER: Title -->
+  <div class="hero-center">
+    <div class="hero-title">COMMAND CENTER</div>
+    <div class="hero-dot"></div>
+  </div>
+
+  <!-- RIGHT: Device Status -->
+  <div class="hero-right">
+    <div id="adbBadge" class="hero-device-badge off">● Mengecek device...</div>
+    <div id="devSerial" class="hero-device-detail">Hubungkan perangkat Android via USB</div>
+  </div>
 </div>
 
 <!-- ADB PANEL -->
 <div class="adb-panel">
-  <div class="adb-header">
-    <div class="adb-header-left">
-      <div class="adb-icon">🤖</div>
-      <div>
-        <div class="adb-label">ADB Control Panel</div>
-        <div class="adb-port">port 3000 · v2.0</div>
-      </div>
-    </div>
-    <div id="adbBadge" class="adb-badge off">● Mengecek...</div>
-  </div>
-
   <div class="adb-body">
-    <div class="dev-icon-wrap">
-      <div class="dev-icon">📱</div>
-    </div>
-    <div>
+    <div class="dev-icon">📱</div>
+    <div class="dev-info">
       <div class="dev-name" id="devName">Menunggu device...</div>
-      <div class="dev-serial" id="devSerial">Serial: — · Android —</div>
       <div class="dev-tags" id="devTags">
         <span class="tag ta">Disconnected</span>
       </div>
@@ -445,7 +467,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   <div class="btn-row">
     <button class="btn btn-start" onclick="doStart()">▶ Mulai Screenshot</button>
     <button class="btn btn-stop"  onclick="doStop()">⏹ Stop</button>
-    <button class="btn btn-manual" onclick="doRefresh()">📋 Screenshot Manual</button>
   </div>
 </div>
 
@@ -477,126 +498,10 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   </div>
 </div>
 
-<!-- STATISTIK + KONFIGURASI -->
-<div class="two-col-w">
+<!-- THREE COL: Gallery | Rincian | Log+Config -->
+<div class="three-col">
 
-  <!-- Statistik Harian -->
-  <div class="panel">
-    <div class="ph">
-      <div class="pt"><span class="pdot dc"></span>Statistik Harian</div>
-      <div class="pa">
-        <span class="ml" id="todayDate">--/--/----</span>
-        <button class="mb mbc" onclick="doRefresh()">Hari Ini</button>
-      </div>
-    </div>
-
-    <div class="sh-grid">
-      <div class="sh-item sht">
-        <div class="sh-icon">📊</div>
-        <div class="sh-num" id="shTotal">0</div>
-        <div class="sh-lbl">Total Screenshot</div>
-      </div>
-      <div class="sh-item sho">
-        <div class="sh-icon">✅</div>
-        <div class="sh-num" id="shOk">0</div>
-        <div class="sh-lbl">Berhasil</div>
-      </div>
-      <div class="sh-item shf">
-        <div class="sh-icon">❌</div>
-        <div class="sh-num" id="shFail">0</div>
-        <div class="sh-lbl">Gagal</div>
-      </div>
-    </div>
-
-    <div class="dist-sec">
-      <div class="dist-lbl">Distribusi Hasil</div>
-      <div class="dist-row">
-        <div class="dist-rl"><span>Berhasil</span><span id="distOkN">0</span></div>
-        <div class="dist-bar"><div id="distOkBar" class="dg-fill" style="width:0%"></div></div>
-      </div>
-      <div class="dist-row">
-        <div class="dist-rl"><span>Gagal</span><span id="distFailN">0</span></div>
-        <div class="dist-bar"><div id="distFailBar" class="dr-fill" style="width:0%"></div></div>
-      </div>
-    </div>
-
-    <div class="ph" style="border-top:1px solid var(--border);">
-      <div class="pt" style="color:var(--text2);">▸ Rincian Per Kontak</div>
-    </div>
-    <div class="mt-wrap" style="max-height:160px;">
-      <table class="mt">
-        <thead><tr><th>Waktu</th><th>Nama</th><th>Nomor</th><th>Status</th></tr></thead>
-        <tbody id="rincianBody">
-          <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Belum ada data proses</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Konfigurasi -->
-  <div class="panel">
-    <div class="ph">
-      <div class="pt"><span class="pdot da"></span>⚙ Konfigurasi</div>
-    </div>
-    <div class="cfg-body">
-      <div class="cfg-grp">
-        <div class="cfg-lbl">Delay Antar SMS (detik)</div>
-        <input class="cfg-in" id="cfgDelay" type="number" value="5" min="1" max="30"/>
-      </div>
-      <div class="cfg-grp">
-        <div class="cfg-lbl">Retry Jika Gagal</div>
-        <input class="cfg-in" id="cfgRetry" type="number" value="2" min="0" max="5"/>
-      </div>
-      <div class="cfg-grp">
-        <div class="cfg-lbl">📁 Folder Screenshot</div>
-        <div class="cfg-pr">
-          <input class="cfg-in" id="cfgSsDir" type="text" placeholder="C:\\Users\\...\\screenshots"/>
-          <button class="bp">Pilih</button>
-        </div>
-      </div>
-      <div class="cfg-grp">
-        <div class="cfg-lbl">📁 Folder Project</div>
-        <div class="cfg-pr">
-          <input class="cfg-in" id="cfgProjDir" type="text" placeholder="C:\\Users\\...\\bot-sms"/>
-          <button class="bp">Pilih</button>
-        </div>
-      </div>
-      <div class="cfg-grp">
-        <div class="cfg-lbl">📱 ADB Path</div>
-        <div class="cfg-pr">
-          <input class="cfg-in" id="cfgAdb" type="text" placeholder="C:\\Users\\...\\adb.exe"/>
-          <button class="bp">Pilih</button>
-        </div>
-      </div>
-      <button class="btn-save" onclick="saveConfig()">💾 Simpan Konfigurasi</button>
-    </div>
-  </div>
-</div>
-
-<!-- DAFTAR KONTAK -->
-<div class="panel ft-section">
-  <div class="ph">
-    <div class="pt"><span class="pdot dg"></span>Daftar Kontak</div>
-    <div class="pa">
-      <span class="ml" id="sheetInfo">Sheet1 · 0 baris</span>
-      <button class="mb mbc" onclick="doRefresh()">↻ Refresh</button>
-    </div>
-  </div>
-  <div class="tw">
-    <table class="ft">
-      <thead>
-        <tr><th>#</th><th>Nama</th><th>Nomor</th><th>Status</th></tr>
-      </thead>
-      <tbody id="kontakBody">
-        <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:20px;font-size:12px;">Klik Refresh untuk memuat data</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- BOTTOM: GALLERY + LOG -->
-<div class="bot-row">
-
+  <!-- GALLERY -->
   <div class="panel">
     <div class="ph">
       <div class="pt"><span class="pdot dc"></span>Galeri Screenshot</div>
@@ -607,16 +512,95 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
     </div>
   </div>
 
+  <!-- RINCIAN PER KONTAK -->
   <div class="panel">
     <div class="ph">
-      <div class="pt"><span id="runDot" class="pdot" style="background:var(--text3);box-shadow:none;animation:none;"></span>Terminal Log</div>
-      <button class="mb mba" onclick="clearLog()">Clear</button>
+      <div class="pt"><span class="pdot dg"></span>Rincian Per Kontak</div>
+      <div class="pa">
+        <span class="ml" id="rincianCount">0 data</span>
+        <button class="mb mbc" onclick="doRefresh()">↻</button>
+      </div>
     </div>
-    <div id="logBody" class="log-body" style="min-height:200px;"></div>
+    <div class="mt-wrap">
+      <table class="mt">
+        <thead><tr><th>Waktu</th><th>No Lapor</th><th>Nomor</th><th>Status</th></tr></thead>
+        <tbody id="rincianBody">
+          <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Belum ada data</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
+  <!-- TERMINAL LOG + KONFIGURASI -->
+  <div style="display:flex;flex-direction:column;gap:14px;">
+
+    <!-- TERMINAL LOG (atas) -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt"><span id="runDot" class="pdot" style="background:var(--text3);box-shadow:none;animation:none;"></span>Terminal Log</div>
+        <button class="mb mba" onclick="clearLog()">Clear</button>
+      </div>
+      <div id="logBody" class="log-body"></div>
+    </div>
+
+    <!-- KONFIGURASI (bawah) -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt"><span class="pdot da"></span>⚙ Konfigurasi</div>
+      </div>
+      <div class="cfg-body">
+        <div class="cfg-grp">
+          <div class="cfg-lbl">Delay Antar SMS (detik)</div>
+          <input class="cfg-in" id="cfgDelay" type="number" value="5" min="1" max="30"/>
+        </div>
+        <div class="cfg-grp">
+          <div class="cfg-lbl">Retry Jika Gagal</div>
+          <input class="cfg-in" id="cfgRetry" type="number" value="2" min="0" max="5"/>
+        </div>
+        <div class="cfg-grp">
+          <div class="cfg-lbl">📁 Folder Screenshot</div>
+          <div class="cfg-pr">
+            <input class="cfg-in" id="cfgSsDir" type="text" placeholder="C:\\Users\\...\\screenshots"/>
+            <button class="bp" onclick="pickFolder('cfgSsDir')">Pilih</button>
+          </div>
+        </div>
+        <div class="cfg-grp">
+          <div class="cfg-lbl">📁 Folder Project</div>
+          <div class="cfg-pr">
+            <input class="cfg-in" id="cfgProjDir" type="text" placeholder="C:\\Users\\...\\bot-sms"/>
+            <button class="bp" onclick="pickFolder('cfgProjDir')">Pilih</button>
+          </div>
+        </div>
+        <div class="cfg-grp">
+          <div class="cfg-lbl">📱 ADB Path</div>
+          <div class="cfg-pr">
+            <input class="cfg-in" id="cfgAdb" type="text" placeholder="C:\\Users\\...\\adb.exe"/>
+            <button class="bp" onclick="pickFile('cfgAdb')">Pilih</button>
+          </div>
+        </div>
+        <button class="btn-save" onclick="saveConfig()">💾 Simpan Konfigurasi</button>
+      </div>
+    </div>
+
+  </div>
 </div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-left">
+    <a href="https://github.com/heruahmadsidik/bot-sms-screenshot" target="_blank" rel="noopener" class="footer-gh">https://github.com/heruahmadsidik/bot-sms-screenshot</a>
+  </div>
+  <div class="footer-right">
+    <div class="footer-built">Built with bismillah by: Heru Ahmad Sidik</div>
+    <div class="footer-copy">&#174; Copyright 2026</div>
+  </div>
 </div>
+
+</div><!-- /wrap -->
+
+<!-- HIDDEN FILE/FOLDER INPUT -->
+<input type="file" id="filePickerInput" />
+<input type="file" id="folderPickerInput" webkitdirectory />
 
 <!-- LIGHTBOX -->
 <div id="viewer" onclick="cvClose(event)">
@@ -630,15 +614,61 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <script>
 let prevImg=[], prevLogLen=0;
 
-// Date
-const dd=new Date();
-document.getElementById('todayDate').textContent=
-  String(dd.getDate()).padStart(2,'0')+'/'+String(dd.getMonth()+1).padStart(2,'0')+'/'+dd.getFullYear();
+// File/Folder picker using native browser input
+function pickFile(targetId) {
+  const inp = document.getElementById('filePickerInput');
+  inp.accept = '.exe,*';
+  inp.onchange = function(e) {
+    const file = e.target.files[0];
+    if (file) {
+      // Try to get full path - modern browsers block this for security
+      // We show the file name and let user manually edit if needed
+      const val = file.name;
+      // Try webkitRelativePath or use file name
+      document.getElementById(targetId).value = file.name;
+      // Show hint
+      showPathHint(targetId, file.name);
+    }
+    inp.value = '';
+  };
+  inp.click();
+}
+
+function pickFolder(targetId) {
+  const inp = document.getElementById('folderPickerInput');
+  inp.onchange = function(e) {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // Get folder path from webkitRelativePath
+      const rel = files[0].webkitRelativePath;
+      const folderName = rel ? rel.split('/')[0] : files[0].name;
+      document.getElementById(targetId).value = folderName;
+      showPathHint(targetId, folderName);
+    }
+    inp.value = '';
+  };
+  inp.click();
+}
+
+function showPathHint(targetId, name) {
+  const inp = document.getElementById(targetId);
+  inp.style.borderColor = 'var(--cyan)';
+  inp.title = 'Nama: ' + name + ' — Ketik path lengkap jika perlu (browser tidak mengizinkan akses path penuh)';
+  setTimeout(() => { inp.style.borderColor = ''; }, 2000);
+}
 
 // Actions
 async function doStart(){
+  // Reset gallery display immediately
+  prevImg=[];
+  document.getElementById('gallery').innerHTML='<div class="g-empty">Memulai sesi baru...</div>';
+  document.getElementById('imgLbl').textContent='0 file';
+  document.getElementById('rincianBody').innerHTML='<tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Memulai...</td></tr>';
+  document.getElementById('rincianCount').textContent='0 data';
   const r=await fetch('/start').then(x=>x.json()).catch(()=>({ok:false}));
-  if(!r.ok) alert(r.msg||'Gagal memulai');
+  if(!r.ok){ alert(r.msg||'Gagal memulai'); return; }
+  // immediately refresh sheet so total count updates
+  await fetch('/refresh-sheet');
 }
 function doStop(){ fetch('/stop'); }
 async function doRefresh(){ await fetch('/refresh-sheet'); await loadSheet(); }
@@ -655,14 +685,35 @@ async function saveConfig(){
   const d=parseInt(document.getElementById('cfgDelay').value)||5;
   const r=parseInt(document.getElementById('cfgRetry').value)||2;
   const a=document.getElementById('cfgAdb').value;
-  await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delay:d,retry:r,adbPath:a})});
+  const ss=document.getElementById('cfgSsDir').value;
+  const pj=document.getElementById('cfgProjDir').value;
+  const res=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delay:d,retry:r,adbPath:a,ssDir:ss,projDir:pj})});
+  const data=await res.json();
+  if(data.ok){
+    const btn=document.querySelector('.btn-save');
+    const orig=btn.innerHTML;
+    btn.innerHTML='✅ Tersimpan!';
+    btn.style.borderColor='var(--green)';
+    btn.style.color='var(--green)';
+    setTimeout(()=>{btn.innerHTML=orig;btn.style.borderColor='';btn.style.color='';},2000);
+  }
+}
+
+// Load config on init
+async function loadConfig(){
+  const c=await fetch('/config').then(r=>r.json()).catch(()=>null);
+  if(!c) return;
+  if(c.delay) document.getElementById('cfgDelay').value=c.delay/1000;
+  if(c.retry!=null) document.getElementById('cfgRetry').value=c.retry;
+  if(c.adbPath) document.getElementById('cfgAdb').value=c.adbPath;
+  if(c.ssDir) document.getElementById('cfgSsDir').value=c.ssDir;
+  if(c.projDir) document.getElementById('cfgProjDir').value=c.projDir;
 }
 
 async function loadSheet(){
   const d=await fetch('/sheet-data').then(r=>r.json()).catch(()=>null);
   if(!d) return;
   const rows=d.rows||[];
-  document.getElementById('sheetInfo').textContent=(d.sheet||'Sheet1')+' · '+rows.length+' baris';
   const doneC=rows.filter(r=>r[2]==='DONE').length;
   const failC=rows.filter(r=>r[2]==='FAILED').length;
   const pendC=rows.filter(r=>!r[2]||r[2]===''||r[2]==='READY').length;
@@ -670,27 +721,9 @@ async function loadSheet(){
   document.getElementById('stDone').textContent=doneC;
   document.getElementById('stPending').textContent=pendC;
   document.getElementById('stFailed').textContent=failC;
-  document.getElementById('shTotal').textContent=doneC+failC;
-  document.getElementById('shOk').textContent=doneC;
-  document.getElementById('shFail').textContent=failC;
-  const tot=doneC+failC||1;
-  document.getElementById('distOkN').textContent=doneC;
-  document.getElementById('distFailN').textContent=failC;
-  document.getElementById('distOkBar').style.width=Math.round(doneC/tot*100)+'%';
-  document.getElementById('distFailBar').style.width=Math.round(failC/tot*100)+'%';
-  const kb=document.getElementById('kontakBody');
-  if(!rows.length){
-    kb.innerHTML='<tr><td colspan="4" style="color:var(--text3);text-align:center;padding:20px;font-size:12px;">Tidak ada data</td></tr>';
-  } else {
-    kb.innerHTML=rows.map((r,i)=>{
-      const s=r[2]||'READY';
-      const bc=s==='DONE'?'bd':s==='FAILED'?'bf':'br';
-      return '<tr><td class="nc">'+String(i+1).padStart(2,'0')+'</td><td class="nmc">'+esc(r[0]||'-')+'</td><td class="noc">'+esc(r[1]||'-')+'</td><td><span class="'+bc+'">✓ '+s+'</span></td></tr>';
-    }).join('');
-  }
 }
 
-function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function poll(){
   const [s,l,d]=await Promise.all([
@@ -705,38 +738,56 @@ async function poll(){
     const b=document.getElementById('adbBadge');
     if(d.connected){
       b.textContent='● '+(d.info.name||'Device')+' — Terhubung';
-      b.className='adb-badge';
+      b.className='hero-device-badge';
       document.getElementById('devName').textContent=d.info.name||'Device';
-      document.getElementById('devSerial').textContent='Serial: '+(d.info.serial||'—')+' · Android '+(d.info.android||'—')+(d.info.usbDebug?' · USB Debug: ON':'');
+      document.getElementById('devSerial').textContent='Serial: '+(d.info.serial||'—')+' · Android '+(d.info.android||'—');
       document.getElementById('devTags').innerHTML='<span class="tag tg">Device Ready</span>'+(d.info.android?'<span class="tag tc">Android '+d.info.android+'</span>':'')+(d.info.usbDebug?'<span class="tag ta">USB Debug: ON</span>':'');
     } else {
       b.textContent='● Tidak Ada Device';
-      b.className='adb-badge off';
+      b.className='hero-device-badge off';
       document.getElementById('devName').textContent='Tidak ada device terdeteksi';
       document.getElementById('devSerial').textContent='Hubungkan perangkat Android via USB';
       document.getElementById('devTags').innerHTML='<span class="tag ta">Disconnected</span>';
     }
   }
 
-  // Progress
-  document.getElementById('progFill').style.width=s.progress+'%';
+  // Stat cards - real-time from server counts
+  if(s.counts){
+    document.getElementById('stTotal').textContent=s.counts.total;
+    document.getElementById('stDone').textContent=s.counts.done;
+    document.getElementById('stPending').textContent=s.counts.pending;
+    document.getElementById('stFailed').textContent=s.counts.failed;
+  }
   document.getElementById('pDone').textContent=s.done;
   document.getElementById('pTotal').textContent=s.total;
+
+  // Progress bar animation
+  const pf=document.getElementById('progFill');
+  pf.style.width=s.progress+'%';
+  if(s.running && s.total>0){
+    pf.className='prog-fill prog-fill-active';
+    document.getElementById('pDone').closest('.prog-nums').className='prog-nums prog-nums-running';
+  } else {
+    pf.className='prog-fill';
+    document.getElementById('pDone').closest('.prog-nums').className='prog-nums';
+  }
 
   // Running dot
   const rd=document.getElementById('runDot');
   if(s.running){ rd.className='pdot dg'; rd.style=''; }
   else { rd.style='background:var(--text3);box-shadow:none;animation:none;'; }
 
-  // Rincian
+  // Rincian - include phone number from sheetData lookup
   if(s.lastImages&&s.lastImages.length){
     const rb=document.getElementById('rincianBody');
-    rb.innerHTML=s.lastImages.slice(0,8).map(img=>
-      '<tr><td class="nc">'+(img.time||'--:--')+'</td><td>'+esc(img.name||'—')+'</td><td class="noc">—</td><td><span class="bd">✓ BERHASIL</span></td></tr>'
-    ).join('');
+    document.getElementById('rincianCount').textContent=s.lastImages.length+' data';
+    rb.innerHTML=s.lastImages.map(img=>{
+      const nomor=img.nomor||'—';
+      return '<tr><td class="nc">'+(img.time||'--:--')+'</td><td>'+esc(img.name||'—')+'</td><td class="noc">'+esc(nomor)+'</td><td><span class="bd">BERHASIL</span></td></tr>';
+    }).join('');
   }
 
-  // Gallery
+  // Gallery - fixed height, show actual file size
   if(JSON.stringify(prevImg)!==JSON.stringify(s.lastImages)){
     prevImg=s.lastImages;
     const g=document.getElementById('gallery');
@@ -749,16 +800,17 @@ async function poll(){
         const src=img.src||img;
         const name=img.name||src.split('/').pop().replace('.png','');
         const time=img.time||'';
+        const size=img.size||'';
         const div=document.createElement('div');
         div.className='g-item';
-        div.innerHTML='<img src="'+src+'" alt="'+esc(name)+'" loading="lazy"><div class="g-lbl">'+esc(name)+'<br>'+time+'</div>';
-        div.onclick=()=>openViewer(src,name+' · '+time);
+        div.innerHTML='<img src="'+src+'" alt="'+esc(name)+'" loading="lazy"><div class="g-lbl">'+esc(name)+'<br><span class="g-size">'+esc(size)+'</span></div>';
+        div.onclick=()=>openViewer(src,name+' · '+time+' · '+size);
         g.appendChild(div);
       });
     }
   }
 
-  // Logs
+  // Logs - fixed height (CSS handles it)
   if(l.length!==prevLogLen){
     prevLogLen=l.length;
     const lb=document.getElementById('logBody');
@@ -776,6 +828,7 @@ async function poll(){
   }
 }
 
+loadConfig();
 loadSheet();
 setInterval(poll,1200);
 poll();
