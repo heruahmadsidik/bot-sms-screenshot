@@ -8,14 +8,12 @@ const path = require("path");
 // ================= CONFIG =================
 const SPREADSHEET_ID = "1MlYstlcJdUurTSthIabeWdpjVwOgDdN8B3cWQso1H78";
 const SHEET_NAME = "Sheet1";
-const DELAY = 5000;
-const RETRY = 2;
-const ADB_PATH = "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe";
-
+let CONFIG = { delay: 5000, retry: 2, adbPath: "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe" };
 // ==========================================
 
 const app = express();
 const PORT = 3000;
+app.use(express.json());
 
 // ================= STATE =================
 let logs = [];
@@ -24,22 +22,30 @@ let stopRequested = false;
 let progress = 0;
 let total = 0;
 let done = 0;
-let lastImage = "";
+let failed = 0;
+let lastImages = [];
+let sheetData = [];
+let deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false };
 
 // ================= LOG =================
-function addLog(msg) {
-  const time = new Date().toLocaleTimeString();
-  const log = `[${time}] ${msg}`;
-  console.log(log);
+function addLog(msg, type) {
+  const time = new Date().toLocaleTimeString("id-ID", { hour12: false });
+  if (!type) {
+    if (msg.includes("❌") || msg.includes("FAILED")) type = "error";
+    else if (msg.includes("⚠️") || msg.includes("Retry") || msg.includes("retry")) type = "warn";
+    else if (msg.includes("✅") || msg.includes("DONE") || msg.includes("📸") || msg.includes("berhasil")) type = "ok";
+    else if (msg.includes("🚀") || msg.includes("🎉") || msg.includes("📊") || msg.includes("ℹ")) type = "info";
+    else type = "log";
+  }
+  const log = { text: msg, time, type };
+  console.log("[" + time + "] " + msg);
   logs.push(log);
-  if (logs.length > 300) logs.shift();
+  if (logs.length > 500) logs.shift();
 }
 
 // ================= FOLDER =================
 const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
 if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
-
-// serve image
 app.use("/screenshots", express.static(SCREENSHOT_DIR));
 
 // ================= GOOGLE =================
@@ -49,100 +55,103 @@ const auth = new google.auth.GoogleAuth({
 });
 
 // ================= UTIL =================
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function safeName(text) {
-  return text.trim().replace(/[\\/:*?"<>|]/g, "");
-}
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function safeName(t) { return t.trim().replace(/[\\/:*?"<>|]/g, ""); }
 
 // ================= DEVICE =================
 function checkDevice() {
   try {
-    addLog("📱 Cek device...");
-    const out = execSync(`"${ADB_PATH}" devices`).toString();
-    addLog(out);
+    const out = execSync('"' + CONFIG.adbPath + '" devices').toString();
+    return out.includes("device");
+  } catch (e) { return false; }
+}
 
-    if (!out.includes("device")) {
-      addLog("❌ Tidak ada device");
-      return false;
-    }
-
-    addLog("✅ Device siap");
-    return true;
+function getDeviceInfo() {
+  try {
+    const model  = execSync('"' + CONFIG.adbPath + '" shell getprop ro.product.model').toString().trim();
+    const serial = execSync('"' + CONFIG.adbPath + '" shell getprop ro.serialno').toString().trim();
+    const ver    = execSync('"' + CONFIG.adbPath + '" shell getprop ro.build.version.release').toString().trim();
+    deviceInfo = { name: model, serial, android: ver, usbDebug: true };
   } catch (e) {
-    addLog("❌ Error ADB");
-    return false;
+    deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false };
   }
 }
 
+app.get("/device-status", (req, res) => {
+  try {
+    const out = execSync('"' + CONFIG.adbPath + '" devices').toString();
+    const lines = out.split("\n").filter(l => l.trim() && !l.includes("List"));
+    const devices = lines.filter(l => l.includes("device"));
+    if (devices.length > 0) getDeviceInfo();
+    res.json({ connected: devices.length > 0, count: devices.length, info: deviceInfo });
+  } catch (e) {
+    res.json({ connected: false, count: 0, info: deviceInfo });
+  }
+});
+
 // ================= SHEET =================
 async function getData() {
-  addLog("📄 Ambil data spreadsheet...");
-
+  addLog("📄 Membaca Google Sheets...", "info");
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
-
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:C`,
+    range: SHEET_NAME + "!A2:C",
   });
-
-  const rows = res.data.values || [];
-  addLog(`✅ ${rows.length} data ditemukan`);
-  return rows;
+  sheetData = res.data.values || [];
+  addLog("✅ " + sheetData.length + " kontak dimuat", "ok");
+  return sheetData;
 }
 
 async function updateStatus(row, status) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
-
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!C${row}`,
+    range: SHEET_NAME + "!C" + row,
     valueInputOption: "RAW",
     requestBody: { values: [[status]] },
   });
+  if (sheetData[row - 2]) sheetData[row - 2][2] = status;
 }
+
+app.get("/sheet-data",    (req, res) => res.json({ rows: sheetData, sheet: SHEET_NAME }));
+app.get("/refresh-sheet", async (req, res) => {
+  try { await getData(); res.json({ ok: true, count: sheetData.length }); }
+  catch (e) { res.json({ ok: false, error: e.message }); }
+});
 
 // ================= SCREENSHOT =================
 async function screenshotSMS(nomor, nama, rowIndex) {
   let attempt = 0;
-
-  while (attempt <= RETRY) {
+  while (attempt <= CONFIG.retry) {
     try {
-      addLog(`📱 ${nama} (${nomor})`);
-
-      execSync(
-        `"${ADB_PATH}" shell am start -a android.intent.action.VIEW -d sms:${nomor}`
-      );
-
+      addLog("📱 Membuka SMS: " + nama + " (" + nomor + ")", "log");
+      execSync('"' + CONFIG.adbPath + '" shell am start -a android.intent.action.VIEW -d sms:' + nomor);
       await sleep(4000);
-
-      const fileName = `${safeName(nama)}.png`;
+      const fileName = safeName(nama) + ".png";
       const filePath = path.join(SCREENSHOT_DIR, fileName);
-
-      execSync(
-        `"${ADB_PATH}" exec-out screencap -p > "${filePath}"`,
-        { shell: true }
-      );
-
-      lastImage = `/screenshots/${fileName}`;
-
-      addLog(`📸 ${fileName}`);
-
+      execSync('"' + CONFIG.adbPath + '" exec-out screencap -p > "' + filePath + '"', { shell: true });
+      const stat = fs.statSync(filePath);
+      const imgPath = "/screenshots/" + fileName;
+      lastImages.unshift({
+        src: imgPath, name: nama,
+        time: new Date().toLocaleTimeString("id-ID", { hour12: false }),
+        size: (stat.size / 1024).toFixed(1) + " KB"
+      });
+      if (lastImages.length > 20) lastImages.pop();
+      addLog("📸 Screenshot berhasil: " + fileName, "ok");
       await updateStatus(rowIndex, "DONE");
       done++;
       progress = Math.floor((done / total) * 100);
-
       return;
     } catch (e) {
       attempt++;
-      addLog(`⚠️ Retry ${attempt}`);
-
-      if (attempt > RETRY) {
+      addLog("⚠️ Gagal, retry " + attempt + "/" + CONFIG.retry + ": " + nama, "warn");
+      if (attempt > CONFIG.retry) {
         await updateStatus(rowIndex, "FAILED");
+        failed++;
+        addLog("❌ GAGAL (maks retry): " + nama, "error");
       }
     }
   }
@@ -151,228 +160,632 @@ async function screenshotSMS(nomor, nama, rowIndex) {
 // ================= MAIN =================
 async function processAll() {
   if (isRunning) return;
-
   isRunning = true;
   stopRequested = false;
-  done = 0;
-
-  addLog("🚀 START");
-
-  const data = await getData();
-
-  // hanya hitung yang belum DONE
-  const pending = data.filter(
-    (d) => !d[2] || d[2] === "" || d[2] === "READY"
-  );
-
-  total = pending.length;
-
-  addLog(`📊 Total proses: ${total}`);
-
-  for (let i = 0; i < data.length; i++) {
-    if (stopRequested) {
-      addLog("⏹ STOP ditekan");
-      break;
+  done = 0; failed = 0; progress = 0;
+  addLog("🚀 Proses dimulai", "info");
+  try {
+    const data = await getData();
+    const pending = data.filter(d => !d[2] || d[2] === "" || d[2] === "READY");
+    total = pending.length;
+    addLog("📊 " + total + " kontak akan diproses", "info");
+    for (let i = 0; i < data.length; i++) {
+      if (stopRequested) { addLog("⏹ Dihentikan oleh pengguna", "warn"); break; }
+      const [nama, nomor, status] = data[i];
+      if (!nama || !nomor) continue;
+      if (!status || status === "" || status === "READY") {
+        await screenshotSMS(nomor, nama, i + 2);
+        await sleep(CONFIG.delay);
+      }
     }
-
-    const [nama, nomor, status] = data[i];
-
-    if (!nama || !nomor) continue;
-
-    if (!status || status === "" || status === "READY") {
-      await screenshotSMS(nomor, nama, i + 2);
-      await sleep(DELAY);
-    }
-  }
-
+  } catch (e) { addLog("❌ Error: " + e.message, "error"); }
   isRunning = false;
-
-  notifier.notify({
-    title: "Selesai",
-    message: "Proses selesai",
-  });
-
-  addLog("🎉 DONE");
+  notifier.notify({ title: "Bot SMS Selesai", message: done + " berhasil, " + failed + " gagal" });
+  addLog("🎉 Selesai — " + done + " berhasil, " + failed + " gagal", "ok");
 }
 
 // ================= API =================
-app.get("/start", (req, res) => {
-  if (!checkDevice()) return res.send("❌ Device tidak ada");
-
+app.get("/start",  (req, res) => {
+  if (!checkDevice()) return res.json({ ok: false, msg: "Device tidak terdeteksi" });
   processAll();
-  res.send("STARTED");
+  res.json({ ok: true });
 });
-
-app.get("/stop", (req, res) => {
-  stopRequested = true;
-  res.send("STOPPED");
-});
-
-app.get("/logs", (req, res) => res.json(logs));
-
-app.get("/status", (req, res) => {
-  res.json({
-    progress,
-    done,
-    total,
-    running: isRunning,
-    lastImage,
-  });
+app.get("/stop",   (req, res) => { stopRequested = true; res.json({ ok: true }); });
+app.get("/logs",   (req, res) => res.json(logs));
+app.get("/status", (req, res) => res.json({ progress, done, total, failed, running: isRunning, lastImages }));
+app.post("/config", (req, res) => {
+  const b = req.body || {};
+  if (b.delay) CONFIG.delay = parseInt(b.delay) * 1000;
+  if (b.retry) CONFIG.retry = parseInt(b.retry);
+  if (b.adbPath) CONFIG.adbPath = b.adbPath;
+  addLog("⚙ Konfigurasi disimpan", "info");
+  res.json({ ok: true });
 });
 
 // ================= UI =================
 app.get("/", (req, res) => {
-  res.send(`
-  <html>
-  <head>
-    <title>SMS BOT PRO</title>
+  res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bot SMS — Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0f1a; --bg2:#0d1525; --bg3:#111d30;
+  --border:#1e2d45; --border2:#243550;
+  --cyan:#00d4ff; --green:#00e676; --red:#ff3d57; --amber:#ffab00; --purple:#7c4dff;
+  --text:#cdd9ee; --text2:#7a90b0; --text3:#3d5070;
+  --mono:'Share Tech Mono',monospace; --body:'Exo 2',sans-serif; --orb:'Orbitron',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:var(--body);min-height:100vh;position:relative;}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(0,212,255,.07),transparent);pointer-events:none;z-index:0;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 
-    <style>
-      body {
-        font-family: 'Segoe UI', sans-serif;
-        background: #0f172a;
-        color: #e2e8f0;
-        margin: 0;
-        padding: 0;
-      }
+.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 16px 40px;}
 
-      .container {
-        max-width: 900px;
-        margin: auto;
-        padding: 20px;
-      }
+/* HERO */
+.hero{text-align:center;padding:28px 0 20px;position:relative;}
+.hero::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:200px;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);}
+.hero-title{font-family:var(--orb);font-size:36px;font-weight:800;color:var(--cyan);letter-spacing:8px;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;}
+@keyframes tglow{0%,100%{text-shadow:0 0 20px rgba(0,212,255,.4),0 0 50px rgba(0,212,255,.15);}50%{text-shadow:0 0 35px rgba(0,212,255,.7),0 0 80px rgba(0,212,255,.3);}}
+.hero-sub{font-family:var(--orb);font-size:11px;letter-spacing:5px;color:var(--text2);margin-top:4px;}
+.hero-org{font-size:11px;letter-spacing:3px;color:var(--text3);margin-top:2px;}
+.hero-dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);margin:10px auto 0;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
 
-      h1 {
-        text-align: center;
-        margin-bottom: 20px;
-      }
+/* ADB PANEL */
+.adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:18px;overflow:hidden;}
+.adb-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg3);border-bottom:1px solid var(--border);}
+.adb-header-left{display:flex;align-items:center;gap:10px;}
+.adb-icon{width:34px;height:34px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.adb-label{font-family:var(--orb);font-size:12px;color:var(--cyan);letter-spacing:1px;}
+.adb-port{font-family:var(--mono);font-size:10px;color:var(--text3);}
+.adb-badge{font-family:var(--mono);font-size:10px;padding:4px 12px;border-radius:4px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:6px;}
+.adb-badge.off{border-color:var(--red);color:var(--red);}
+.adb-body{display:grid;grid-template-columns:auto 1fr auto;align-items:center;padding:14px 20px;gap:0;}
+.dev-icon-wrap{padding-right:16px;border-right:1px solid var(--border);margin-right:16px;}
+.dev-icon{width:44px;height:70px;border:2px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;background:linear-gradient(180deg,rgba(0,212,255,.05),transparent);}
+.dev-name{font-weight:600;font-size:14px;color:var(--text);}
+.dev-serial{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;}
+.dev-tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.tag{font-size:10px;padding:2px 8px;border-radius:3px;font-family:var(--mono);}
+.tg{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);}
+.tc{background:rgba(0,212,255,.1);color:var(--cyan);border:1px solid rgba(0,212,255,.3);}
+.ta{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);}
+.prog-sec{padding-left:16px;border-left:1px solid var(--border);margin-left:16px;min-width:190px;}
+.prog-lbl{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
+.prog-nums{font-family:var(--orb);font-size:20px;color:var(--cyan);}
+.prog-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.prog-bar{height:5px;background:rgba(0,212,255,.1);border-radius:3px;overflow:hidden;margin-top:8px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),rgba(0,212,255,.6));border-radius:3px;transition:width .6s;box-shadow:0 0 8px rgba(0,212,255,.5);width:0%;}
+.btn-row{display:flex;gap:10px;align-items:center;padding:12px 20px;border-top:1px solid var(--border);}
+.btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--body);font-size:13px;font-weight:600;padding:9px 20px;border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;}
+.btn:active{transform:scale(.97);}
+.btn-start{color:var(--green);border-color:var(--green);background:rgba(0,230,118,.08);}
+.btn-start:hover{background:rgba(0,230,118,.18);box-shadow:0 0 16px rgba(0,230,118,.3);}
+.btn-stop{color:var(--amber);border-color:var(--amber);background:rgba(255,171,0,.08);}
+.btn-stop:hover{background:rgba(255,171,0,.18);box-shadow:0 0 16px rgba(255,171,0,.3);}
+.btn-manual{color:var(--cyan);border-color:var(--cyan);background:rgba(0,212,255,.08);}
+.btn-manual:hover{background:rgba(0,212,255,.18);box-shadow:0 0 16px rgba(0,212,255,.3);}
 
-      .card {
-        background: #1e293b;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-      }
+/* STAT CARDS */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
+.sc{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;position:relative;overflow:hidden;}
+.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.sc.cc::before{background:var(--cyan);box-shadow:0 0 8px var(--cyan);}
+.sc.cg::before{background:var(--green);box-shadow:0 0 8px var(--green);}
+.sc.ca::before{background:var(--amber);box-shadow:0 0 8px var(--amber);}
+.sc.cr::before{background:var(--red);box-shadow:0 0 8px var(--red);}
+.sc-lbl{font-size:10px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;}
+.sc-val{font-family:var(--orb);font-size:38px;font-weight:800;line-height:1;margin:8px 0 4px;}
+.cc .sc-val{color:var(--cyan);text-shadow:0 0 20px rgba(0,212,255,.4);}
+.cg .sc-val{color:var(--green);text-shadow:0 0 20px rgba(0,230,118,.4);}
+.ca .sc-val{color:var(--amber);text-shadow:0 0 20px rgba(255,171,0,.4);}
+.cr .sc-val{color:var(--red);text-shadow:0 0 20px rgba(255,61,87,.4);}
+.sc-desc{font-size:11px;color:var(--text2);}
+.sc-bg{position:absolute;right:12px;bottom:10px;font-size:42px;opacity:.07;}
 
-      button {
-        padding: 12px 20px;
-        border: none;
-        border-radius: 8px;
-        margin: 5px;
-        font-size: 14px;
-        cursor: pointer;
-      }
+/* TWO COL */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
+.two-col-w{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-top:14px;}
 
-      .start { background: #22c55e; color: white; }
-      .stop { background: #ef4444; color: white; }
+/* PANEL */
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.pt{font-family:var(--orb);font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.pdot{width:7px;height:7px;border-radius:50%;animation:blink 1.5s ease-in-out infinite;}
+.dg{background:var(--green);box-shadow:0 0 6px var(--green);}
+.da{background:var(--amber);box-shadow:0 0 6px var(--amber);}
+.dc{background:var(--cyan);box-shadow:0 0 6px var(--cyan);}
+.dr{background:var(--red);box-shadow:0 0 6px var(--red);}
+.pa{display:flex;gap:6px;align-items:center;}
+.mb{font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid;cursor:pointer;background:transparent;transition:all .15s;}
+.mbc{color:var(--cyan);border-color:rgba(0,212,255,.4);}
+.mbc:hover{background:rgba(0,212,255,.1);}
+.mba{color:var(--amber);border-color:rgba(255,171,0,.4);}
+.mba:hover{background:rgba(255,171,0,.1);}
+.ml{font-family:var(--mono);font-size:10px;color:var(--text3);}
 
-      .progress-bar {
-        width: 100%;
-        background: #334155;
-        border-radius: 10px;
-        overflow: hidden;
-        margin-top: 10px;
-      }
+/* STAT HARIAN */
+.sh-grid{display:grid;grid-template-columns:repeat(3,1fr);}
+.sh-item{text-align:center;padding:16px 8px;border-right:1px solid var(--border);}
+.sh-item:last-child{border-right:none;}
+.sh-icon{font-size:22px;margin-bottom:6px;}
+.sh-num{font-family:var(--orb);font-size:30px;font-weight:800;line-height:1;margin-bottom:2px;}
+.sht .sh-num{color:var(--cyan);}
+.sho .sh-num{color:var(--green);}
+.shf .sh-num{color:var(--red);}
+.sh-lbl{font-size:9px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;}
+.dist-sec{padding:10px 14px;border-top:1px solid var(--border);}
+.dist-lbl{font-size:10px;color:var(--text3);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;}
+.dist-row{margin-bottom:6px;}
+.dist-rl{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:3px;}
+.dist-bar{height:4px;border-radius:2px;background:rgba(255,255,255,.05);overflow:hidden;}
+.dg-fill{height:100%;background:var(--green);border-radius:2px;transition:width .6s;}
+.dr-fill{height:100%;background:var(--red);border-radius:2px;transition:width .6s;}
 
-      .progress-fill {
-        height: 20px;
-        width: 0%;
-        background: linear-gradient(90deg, #22c55e, #4ade80);
-        transition: 0.3s;
-      }
+/* MINI TABLE */
+.mt-wrap{padding:0 14px 12px;flex:1;overflow:auto;}
+.mt{width:100%;border-collapse:collapse;font-size:12px;}
+.mt th{text-align:left;font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:1px;padding:6px 8px;border-bottom:1px solid var(--border);font-weight:400;text-transform:uppercase;}
+.mt td{padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.5);}
+.mt tr:last-child td{border-bottom:none;}
+.mt tr:hover td{background:rgba(0,212,255,.03);}
+.bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
+.br{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
+.bf{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
 
-      .preview {
-        text-align: center;
-      }
+/* CONFIG */
+.cfg-body{padding:14px;display:flex;flex-direction:column;gap:12px;}
+.cfg-grp{display:flex;flex-direction:column;gap:4px;}
+.cfg-lbl{font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;}
+.cfg-in{background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;width:100%;transition:border-color .2s;}
+.cfg-in:focus{outline:none;border-color:var(--cyan);}
+.cfg-pr{display:flex;gap:6px;}
+.cfg-pr .cfg-in{flex:1;}
+.bp{font-family:var(--mono);font-size:10px;padding:0 12px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;}
+.btn-save{font-family:var(--body);font-weight:600;font-size:13px;padding:9px;border-radius:6px;border:1px solid rgba(0,212,255,.4);cursor:pointer;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,77,255,.2));color:var(--cyan);text-align:center;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.btn-save:hover{background:linear-gradient(135deg,rgba(0,212,255,.3),rgba(124,77,255,.3));box-shadow:0 0 14px rgba(0,212,255,.3);}
 
-      .preview img {
-        max-width: 100%;
-        border-radius: 10px;
-        border: 1px solid #334155;
-      }
+/* FULL TABLE */
+.ft-section{margin-top:14px;}
+.tw{overflow-x:auto;}
+.ft{width:100%;border-collapse:collapse;font-size:13px;}
+.ft th{text-align:left;font-family:var(--mono);font-size:10px;font-weight:400;color:var(--text3);letter-spacing:1.5px;padding:9px 14px;border-bottom:1px solid var(--border);text-transform:uppercase;background:var(--bg3);}
+.ft td{padding:10px 14px;border-bottom:1px solid rgba(30,45,69,.5);}
+.ft tr:last-child td{border-bottom:none;}
+.ft tr:hover td{background:rgba(0,212,255,.03);}
+.nc{color:var(--text3);font-family:var(--mono);font-size:11px;}
+.nmc{font-weight:600;color:var(--text);}
+.noc{font-family:var(--mono);font-size:12px;color:var(--text2);}
 
-      .logs {
-        background: #020617;
-        padding: 10px;
-        height: 250px;
-        overflow: auto;
-        border-radius: 8px;
-        font-size: 12px;
-      }
+/* BOTTOM ROW */
+.bot-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
 
-      .status {
-        display: flex;
-        justify-content: space-between;
-        font-size: 14px;
-        margin-top: 10px;
-      }
-    </style>
-  </head>
+/* GALLERY */
+.g-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;}
+.g-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);cursor:pointer;aspect-ratio:9/16;background:var(--bg);transition:all .2s;}
+.g-item:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,212,255,.2);transform:scale(1.02);}
+.g-item img{width:100%;height:100%;object-fit:cover;display:block;}
+.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:16px 5px 5px;font-size:9px;color:#ccc;font-family:var(--mono);text-align:center;line-height:1.4;}
+.g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12px;letter-spacing:1px;}
 
-  <body>
-    <div class="container">
+/* LOG */
+.log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:var(--mono);font-size:11px;}
+.le{display:flex;gap:8px;padding:2px 0;line-height:1.6;}
+.lt{color:var(--text3);flex-shrink:0;}
+.ltype{flex-shrink:0;font-size:10px;padding:0 5px;border-radius:2px;align-self:flex-start;margin-top:2px;}
+.lok{background:rgba(0,230,118,.15);color:var(--green);}
+.lwarn{background:rgba(255,171,0,.15);color:var(--amber);}
+.lerr{background:rgba(255,61,87,.15);color:var(--red);}
+.linf{background:rgba(0,212,255,.15);color:var(--cyan);}
+.llog{background:rgba(255,255,255,.05);color:var(--text3);}
+.lm{color:var(--text2);flex:1;}
+.le.latest .lm{color:var(--cyan);}
 
-      <h1>🚀 SMS BOT DASHBOARD</h1>
+/* LIGHTBOX */
+#viewer{position:fixed;inset:0;background:rgba(5,8,15,.95);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:999;}
+#viewer.show{display:flex;}
+.vbox{position:relative;}
+#vImg{max-width:90vw;max-height:88vh;border-radius:8px;border:1px solid var(--border);box-shadow:0 0 60px rgba(0,212,255,.15);}
+.vcls{position:absolute;top:-12px;right:-12px;width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;font-size:13px;color:white;display:flex;align-items:center;justify-content:center;}
+.vcap{text-align:center;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text2);}
+</style>
+</head>
+<body>
+<div class="wrap">
 
-      <div class="card" style="text-align:center">
-        <button class="start" onclick="start()">START</button>
-        <button class="stop" onclick="stop()">STOP</button>
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-title">BOT SMS</div>
+  <div class="hero-sub">COMMAND CENTER</div>
+  <div class="hero-org">PLN UP2D Banten</div>
+  <div class="hero-dot"></div>
+</div>
+
+<!-- ADB PANEL -->
+<div class="adb-panel">
+  <div class="adb-header">
+    <div class="adb-header-left">
+      <div class="adb-icon">🤖</div>
+      <div>
+        <div class="adb-label">ADB Control Panel</div>
+        <div class="adb-port">port 3000 · v2.0</div>
       </div>
+    </div>
+    <div id="adbBadge" class="adb-badge off">● Mengecek...</div>
+  </div>
 
-      <div class="card">
-        <h3>📊 Progress</h3>
-        <div class="progress-bar">
-          <div id="bar" class="progress-fill"></div>
-        </div>
-
-        <div class="status">
-          <span id="percent">0%</span>
-          <span id="count">0 / 0</span>
-        </div>
+  <div class="adb-body">
+    <div class="dev-icon-wrap">
+      <div class="dev-icon">📱</div>
+    </div>
+    <div>
+      <div class="dev-name" id="devName">Menunggu device...</div>
+      <div class="dev-serial" id="devSerial">Serial: — · Android —</div>
+      <div class="dev-tags" id="devTags">
+        <span class="tag ta">Disconnected</span>
       </div>
+    </div>
+    <div class="prog-sec">
+      <div class="prog-lbl">Progress Sesi Ini</div>
+      <div class="prog-nums"><span id="pDone">0</span> / <span id="pTotal">0</span></div>
+      <div class="prog-sub">screenshot diambil</div>
+      <div class="prog-bar"><div id="progFill" class="prog-fill"></div></div>
+    </div>
+  </div>
 
-      <div class="card preview">
-        <h3>📸 Preview</h3>
-        <img id="preview" />
+  <div class="btn-row">
+    <button class="btn btn-start" onclick="doStart()">▶ Mulai Screenshot</button>
+    <button class="btn btn-stop"  onclick="doStop()">⏹ Stop</button>
+    <button class="btn btn-manual" onclick="doRefresh()">📋 Screenshot Manual</button>
+  </div>
+</div>
+
+<!-- STAT CARDS -->
+<div class="stat-grid">
+  <div class="sc cc">
+    <div class="sc-lbl">Total Kontak</div>
+    <div class="sc-val" id="stTotal">0</div>
+    <div class="sc-desc">dari spreadsheet</div>
+    <div class="sc-bg">👥</div>
+  </div>
+  <div class="sc cg">
+    <div class="sc-lbl">Selesai</div>
+    <div class="sc-val" id="stDone">0</div>
+    <div class="sc-desc">screenshot diambil</div>
+    <div class="sc-bg">✅</div>
+  </div>
+  <div class="sc ca">
+    <div class="sc-lbl">Pending</div>
+    <div class="sc-val" id="stPending">0</div>
+    <div class="sc-desc">menunggu antrian</div>
+    <div class="sc-bg">⏳</div>
+  </div>
+  <div class="sc cr">
+    <div class="sc-lbl">Gagal</div>
+    <div class="sc-val" id="stFailed">0</div>
+    <div class="sc-desc">perlu dicek ulang</div>
+    <div class="sc-bg">❌</div>
+  </div>
+</div>
+
+<!-- STATISTIK + KONFIGURASI -->
+<div class="two-col-w">
+
+  <!-- Statistik Harian -->
+  <div class="panel">
+    <div class="ph">
+      <div class="pt"><span class="pdot dc"></span>Statistik Harian</div>
+      <div class="pa">
+        <span class="ml" id="todayDate">--/--/----</span>
+        <button class="mb mbc" onclick="doRefresh()">Hari Ini</button>
       </div>
-
-      <div class="card">
-        <h3>📄 Logs</h3>
-        <div id="logs" class="logs"></div>
-      </div>
-
     </div>
 
-    <script>
-      function start(){ fetch('/start'); }
-      function stop(){ fetch('/stop'); }
+    <div class="sh-grid">
+      <div class="sh-item sht">
+        <div class="sh-icon">📊</div>
+        <div class="sh-num" id="shTotal">0</div>
+        <div class="sh-lbl">Total Screenshot</div>
+      </div>
+      <div class="sh-item sho">
+        <div class="sh-icon">✅</div>
+        <div class="sh-num" id="shOk">0</div>
+        <div class="sh-lbl">Berhasil</div>
+      </div>
+      <div class="sh-item shf">
+        <div class="sh-icon">❌</div>
+        <div class="sh-num" id="shFail">0</div>
+        <div class="sh-lbl">Gagal</div>
+      </div>
+    </div>
 
-      async function load(){
-        const s = await fetch('/status').then(r=>r.json());
-        const l = await fetch('/logs').then(r=>r.json());
+    <div class="dist-sec">
+      <div class="dist-lbl">Distribusi Hasil</div>
+      <div class="dist-row">
+        <div class="dist-rl"><span>Berhasil</span><span id="distOkN">0</span></div>
+        <div class="dist-bar"><div id="distOkBar" class="dg-fill" style="width:0%"></div></div>
+      </div>
+      <div class="dist-row">
+        <div class="dist-rl"><span>Gagal</span><span id="distFailN">0</span></div>
+        <div class="dist-bar"><div id="distFailBar" class="dr-fill" style="width:0%"></div></div>
+      </div>
+    </div>
 
-        document.getElementById('percent').innerText = s.progress + "%";
-        document.getElementById('count').innerText = s.done + " / " + s.total;
-        document.getElementById('bar').style.width = s.progress + "%";
+    <div class="ph" style="border-top:1px solid var(--border);">
+      <div class="pt" style="color:var(--text2);">▸ Rincian Per Kontak</div>
+    </div>
+    <div class="mt-wrap" style="max-height:160px;">
+      <table class="mt">
+        <thead><tr><th>Waktu</th><th>Nama</th><th>Nomor</th><th>Status</th></tr></thead>
+        <tbody id="rincianBody">
+          <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Belum ada data proses</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 
-        if(s.lastImage){
-          document.getElementById('preview').src = s.lastImage + "?t=" + Date.now();
-        }
+  <!-- Konfigurasi -->
+  <div class="panel">
+    <div class="ph">
+      <div class="pt"><span class="pdot da"></span>⚙ Konfigurasi</div>
+    </div>
+    <div class="cfg-body">
+      <div class="cfg-grp">
+        <div class="cfg-lbl">Delay Antar SMS (detik)</div>
+        <input class="cfg-in" id="cfgDelay" type="number" value="5" min="1" max="30"/>
+      </div>
+      <div class="cfg-grp">
+        <div class="cfg-lbl">Retry Jika Gagal</div>
+        <input class="cfg-in" id="cfgRetry" type="number" value="2" min="0" max="5"/>
+      </div>
+      <div class="cfg-grp">
+        <div class="cfg-lbl">📁 Folder Screenshot</div>
+        <div class="cfg-pr">
+          <input class="cfg-in" id="cfgSsDir" type="text" placeholder="C:\\Users\\...\\screenshots"/>
+          <button class="bp">Pilih</button>
+        </div>
+      </div>
+      <div class="cfg-grp">
+        <div class="cfg-lbl">📁 Folder Project</div>
+        <div class="cfg-pr">
+          <input class="cfg-in" id="cfgProjDir" type="text" placeholder="C:\\Users\\...\\bot-sms"/>
+          <button class="bp">Pilih</button>
+        </div>
+      </div>
+      <div class="cfg-grp">
+        <div class="cfg-lbl">📱 ADB Path</div>
+        <div class="cfg-pr">
+          <input class="cfg-in" id="cfgAdb" type="text" placeholder="C:\\Users\\...\\adb.exe"/>
+          <button class="bp">Pilih</button>
+        </div>
+      </div>
+      <button class="btn-save" onclick="saveConfig()">💾 Simpan Konfigurasi</button>
+    </div>
+  </div>
+</div>
 
-        document.getElementById('logs').innerText = l.join("\\n");
-      }
+<!-- DAFTAR KONTAK -->
+<div class="panel ft-section">
+  <div class="ph">
+    <div class="pt"><span class="pdot dg"></span>Daftar Kontak</div>
+    <div class="pa">
+      <span class="ml" id="sheetInfo">Sheet1 · 0 baris</span>
+      <button class="mb mbc" onclick="doRefresh()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="tw">
+    <table class="ft">
+      <thead>
+        <tr><th>#</th><th>Nama</th><th>Nomor</th><th>Status</th></tr>
+      </thead>
+      <tbody id="kontakBody">
+        <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:20px;font-size:12px;">Klik Refresh untuk memuat data</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 
-      setInterval(load, 1000);
-    </script>
+<!-- BOTTOM: GALLERY + LOG -->
+<div class="bot-row">
 
-  </body>
-  </html>
-  `);
+  <div class="panel">
+    <div class="ph">
+      <div class="pt"><span class="pdot dc"></span>Galeri Screenshot</div>
+      <span class="ml" id="imgLbl">0 file</span>
+    </div>
+    <div id="gallery" class="g-grid">
+      <div class="g-empty">Belum ada screenshot</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph">
+      <div class="pt"><span id="runDot" class="pdot" style="background:var(--text3);box-shadow:none;animation:none;"></span>Terminal Log</div>
+      <button class="mb mba" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="logBody" class="log-body" style="min-height:200px;"></div>
+  </div>
+
+</div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="viewer" onclick="cvClose(event)">
+  <div class="vbox">
+    <button class="vcls" onclick="document.getElementById('viewer').classList.remove('show')">✕</button>
+    <img id="vImg" src="" alt="">
+    <div class="vcap" id="vCap"></div>
+  </div>
+</div>
+
+<script>
+let prevImg=[], prevLogLen=0;
+
+// Date
+const dd=new Date();
+document.getElementById('todayDate').textContent=
+  String(dd.getDate()).padStart(2,'0')+'/'+String(dd.getMonth()+1).padStart(2,'0')+'/'+dd.getFullYear();
+
+// Actions
+async function doStart(){
+  const r=await fetch('/start').then(x=>x.json()).catch(()=>({ok:false}));
+  if(!r.ok) alert(r.msg||'Gagal memulai');
+}
+function doStop(){ fetch('/stop'); }
+async function doRefresh(){ await fetch('/refresh-sheet'); await loadSheet(); }
+function clearLog(){ document.getElementById('logBody').innerHTML=''; }
+
+function cvClose(e){ if(e.target===document.getElementById('viewer')) document.getElementById('viewer').classList.remove('show'); }
+function openViewer(src,cap){
+  document.getElementById('vImg').src=src;
+  document.getElementById('vCap').textContent=cap||'';
+  document.getElementById('viewer').classList.add('show');
+}
+
+async function saveConfig(){
+  const d=parseInt(document.getElementById('cfgDelay').value)||5;
+  const r=parseInt(document.getElementById('cfgRetry').value)||2;
+  const a=document.getElementById('cfgAdb').value;
+  await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delay:d,retry:r,adbPath:a})});
+}
+
+async function loadSheet(){
+  const d=await fetch('/sheet-data').then(r=>r.json()).catch(()=>null);
+  if(!d) return;
+  const rows=d.rows||[];
+  document.getElementById('sheetInfo').textContent=(d.sheet||'Sheet1')+' · '+rows.length+' baris';
+  const doneC=rows.filter(r=>r[2]==='DONE').length;
+  const failC=rows.filter(r=>r[2]==='FAILED').length;
+  const pendC=rows.filter(r=>!r[2]||r[2]===''||r[2]==='READY').length;
+  document.getElementById('stTotal').textContent=rows.length;
+  document.getElementById('stDone').textContent=doneC;
+  document.getElementById('stPending').textContent=pendC;
+  document.getElementById('stFailed').textContent=failC;
+  document.getElementById('shTotal').textContent=doneC+failC;
+  document.getElementById('shOk').textContent=doneC;
+  document.getElementById('shFail').textContent=failC;
+  const tot=doneC+failC||1;
+  document.getElementById('distOkN').textContent=doneC;
+  document.getElementById('distFailN').textContent=failC;
+  document.getElementById('distOkBar').style.width=Math.round(doneC/tot*100)+'%';
+  document.getElementById('distFailBar').style.width=Math.round(failC/tot*100)+'%';
+  const kb=document.getElementById('kontakBody');
+  if(!rows.length){
+    kb.innerHTML='<tr><td colspan="4" style="color:var(--text3);text-align:center;padding:20px;font-size:12px;">Tidak ada data</td></tr>';
+  } else {
+    kb.innerHTML=rows.map((r,i)=>{
+      const s=r[2]||'READY';
+      const bc=s==='DONE'?'bd':s==='FAILED'?'bf':'br';
+      return '<tr><td class="nc">'+String(i+1).padStart(2,'0')+'</td><td class="nmc">'+esc(r[0]||'-')+'</td><td class="noc">'+esc(r[1]||'-')+'</td><td><span class="'+bc+'">✓ '+s+'</span></td></tr>';
+    }).join('');
+  }
+}
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function poll(){
+  const [s,l,d]=await Promise.all([
+    fetch('/status').then(r=>r.json()).catch(()=>null),
+    fetch('/logs').then(r=>r.json()).catch(()=>[]),
+    fetch('/device-status').then(r=>r.json()).catch(()=>null),
+  ]);
+  if(!s) return;
+
+  // Device
+  if(d){
+    const b=document.getElementById('adbBadge');
+    if(d.connected){
+      b.textContent='● '+(d.info.name||'Device')+' — Terhubung';
+      b.className='adb-badge';
+      document.getElementById('devName').textContent=d.info.name||'Device';
+      document.getElementById('devSerial').textContent='Serial: '+(d.info.serial||'—')+' · Android '+(d.info.android||'—')+(d.info.usbDebug?' · USB Debug: ON':'');
+      document.getElementById('devTags').innerHTML='<span class="tag tg">Device Ready</span>'+(d.info.android?'<span class="tag tc">Android '+d.info.android+'</span>':'')+(d.info.usbDebug?'<span class="tag ta">USB Debug: ON</span>':'');
+    } else {
+      b.textContent='● Tidak Ada Device';
+      b.className='adb-badge off';
+      document.getElementById('devName').textContent='Tidak ada device terdeteksi';
+      document.getElementById('devSerial').textContent='Hubungkan perangkat Android via USB';
+      document.getElementById('devTags').innerHTML='<span class="tag ta">Disconnected</span>';
+    }
+  }
+
+  // Progress
+  document.getElementById('progFill').style.width=s.progress+'%';
+  document.getElementById('pDone').textContent=s.done;
+  document.getElementById('pTotal').textContent=s.total;
+
+  // Running dot
+  const rd=document.getElementById('runDot');
+  if(s.running){ rd.className='pdot dg'; rd.style=''; }
+  else { rd.style='background:var(--text3);box-shadow:none;animation:none;'; }
+
+  // Rincian
+  if(s.lastImages&&s.lastImages.length){
+    const rb=document.getElementById('rincianBody');
+    rb.innerHTML=s.lastImages.slice(0,8).map(img=>
+      '<tr><td class="nc">'+(img.time||'--:--')+'</td><td>'+esc(img.name||'—')+'</td><td class="noc">—</td><td><span class="bd">✓ BERHASIL</span></td></tr>'
+    ).join('');
+  }
+
+  // Gallery
+  if(JSON.stringify(prevImg)!==JSON.stringify(s.lastImages)){
+    prevImg=s.lastImages;
+    const g=document.getElementById('gallery');
+    document.getElementById('imgLbl').textContent=s.lastImages.length+' file';
+    if(!s.lastImages.length){
+      g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
+    } else {
+      g.innerHTML='';
+      s.lastImages.forEach(img=>{
+        const src=img.src||img;
+        const name=img.name||src.split('/').pop().replace('.png','');
+        const time=img.time||'';
+        const div=document.createElement('div');
+        div.className='g-item';
+        div.innerHTML='<img src="'+src+'" alt="'+esc(name)+'" loading="lazy"><div class="g-lbl">'+esc(name)+'<br>'+time+'</div>';
+        div.onclick=()=>openViewer(src,name+' · '+time);
+        g.appendChild(div);
+      });
+    }
+  }
+
+  // Logs
+  if(l.length!==prevLogLen){
+    prevLogLen=l.length;
+    const lb=document.getElementById('logBody');
+    const atBottom=lb.scrollHeight-lb.scrollTop-lb.clientHeight<80;
+    const typeMap={ok:'OK',warn:'WARN',error:'ERR',info:'INFO',log:'LOG'};
+    const cls={ok:'lok',warn:'lwarn',error:'lerr',info:'linf',log:'llog'};
+    lb.innerHTML='';
+    l.forEach((log,i)=>{
+      const div=document.createElement('div');
+      div.className='le'+(i===l.length-1?' latest':'');
+      div.innerHTML='<span class="lt">'+log.time+'</span><span class="ltype '+(cls[log.type]||'llog')+'">'+(typeMap[log.type]||'LOG')+'</span><span class="lm">'+esc(log.text)+'</span>';
+      lb.appendChild(div);
+    });
+    if(atBottom) lb.scrollTop=lb.scrollHeight;
+  }
+}
+
+loadSheet();
+setInterval(poll,1200);
+poll();
+</script>
+</body>
+</html>`);
 });
-
 
 // ================= RUN =================
 app.listen(PORT, () => {
-  console.log("🚀 http://localhost:3000");
+  addLog("🚀 Server aktif di http://localhost:" + PORT, "info");
+  console.log("🚀 http://localhost:" + PORT);
 });
