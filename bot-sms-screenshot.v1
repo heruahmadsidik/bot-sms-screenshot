@@ -17,13 +17,32 @@ const ADB_PATH = "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe"
 const app = express();
 const PORT = 3000;
 
-// folder screenshot
-const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
-if (!fs.existsSync(SCREENSHOT_DIR)) {
-  fs.mkdirSync(SCREENSHOT_DIR);
+// ================= STATE =================
+let logs = [];
+let isRunning = false;
+let stopRequested = false;
+let progress = 0;
+let total = 0;
+let done = 0;
+let lastImage = "";
+
+// ================= LOG =================
+function addLog(msg) {
+  const time = new Date().toLocaleTimeString();
+  const log = `[${time}] ${msg}`;
+  console.log(log);
+  logs.push(log);
+  if (logs.length > 300) logs.shift();
 }
 
-// ================= GOOGLE AUTH =================
+// ================= FOLDER =================
+const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
+if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
+
+// serve image
+app.use("/screenshots", express.static(SCREENSHOT_DIR));
+
+// ================= GOOGLE =================
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -31,17 +50,37 @@ const auth = new google.auth.GoogleAuth({
 
 // ================= UTIL =================
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function safeName(text) {
-  return text
-    .trim()
-    .replace(/[\\/:*?"<>|]/g, ""); // hanya hapus karakter ilegal
+  return text.trim().replace(/[\\/:*?"<>|]/g, "");
 }
 
-// ================= AMBIL DATA =================
+// ================= DEVICE =================
+function checkDevice() {
+  try {
+    addLog("📱 Cek device...");
+    const out = execSync(`"${ADB_PATH}" devices`).toString();
+    addLog(out);
+
+    if (!out.includes("device")) {
+      addLog("❌ Tidak ada device");
+      return false;
+    }
+
+    addLog("✅ Device siap");
+    return true;
+  } catch (e) {
+    addLog("❌ Error ADB");
+    return false;
+  }
+}
+
+// ================= SHEET =================
 async function getData() {
+  addLog("📄 Ambil data spreadsheet...");
+
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
@@ -50,21 +89,20 @@ async function getData() {
     range: `${SHEET_NAME}!A2:C`,
   });
 
-  return res.data.values || [];
+  const rows = res.data.values || [];
+  addLog(`✅ ${rows.length} data ditemukan`);
+  return rows;
 }
 
-// ================= UPDATE STATUS =================
-async function updateStatus(rowIndex, status) {
+async function updateStatus(row, status) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!C${rowIndex}`,
+    range: `${SHEET_NAME}!C${row}`,
     valueInputOption: "RAW",
-    requestBody: {
-      values: [[status]],
-    },
+    requestBody: { values: [[status]] },
   });
 }
 
@@ -74,106 +112,267 @@ async function screenshotSMS(nomor, nama, rowIndex) {
 
   while (attempt <= RETRY) {
     try {
-      console.log(`📱 Buka SMS: ${nomor}`);
+      addLog(`📱 ${nama} (${nomor})`);
 
-      // buka SMS
       execSync(
         `"${ADB_PATH}" shell am start -a android.intent.action.VIEW -d sms:${nomor}`
       );
 
       await sleep(4000);
 
-      const safe = safeName(nama);
-      const fileName = `${safe}.png`;
+      const fileName = `${safeName(nama)}.png`;
       const filePath = path.join(SCREENSHOT_DIR, fileName);
 
-      // screenshot
       execSync(
         `"${ADB_PATH}" exec-out screencap -p > "${filePath}"`,
         { shell: true }
       );
 
-      console.log(`✅ Selesai: ${nama}`);
-      console.log(`💾 Tersimpan: ${filePath}`);
+      lastImage = `/screenshots/${fileName}`;
+
+      addLog(`📸 ${fileName}`);
 
       await updateStatus(rowIndex, "DONE");
-      return;
+      done++;
+      progress = Math.floor((done / total) * 100);
 
-    } catch (err) {
+      return;
+    } catch (e) {
       attempt++;
-      console.log(`⚠️ Retry ${attempt} untuk ${nomor}`);
-      console.log(err.message);
+      addLog(`⚠️ Retry ${attempt}`);
 
       if (attempt > RETRY) {
-        console.log(`❌ Gagal: ${nomor}`);
         await updateStatus(rowIndex, "FAILED");
       }
     }
   }
 }
 
-// ================= PROSES UTAMA =================
+// ================= MAIN =================
 async function processAll() {
+  if (isRunning) return;
+
+  isRunning = true;
+  stopRequested = false;
+  done = 0;
+
+  addLog("🚀 START");
+
   const data = await getData();
 
+  // hanya hitung yang belum DONE
+  const pending = data.filter(
+    (d) => !d[2] || d[2] === "" || d[2] === "READY"
+  );
+
+  total = pending.length;
+
+  addLog(`📊 Total proses: ${total}`);
+
   for (let i = 0; i < data.length; i++) {
+    if (stopRequested) {
+      addLog("⏹ STOP ditekan");
+      break;
+    }
+
     const [nama, nomor, status] = data[i];
 
     if (!nama || !nomor) continue;
 
-    if (!status || status.trim() === "" || status === "READY") {
+    if (!status || status === "" || status === "READY") {
       await screenshotSMS(nomor, nama, i + 2);
       await sleep(DELAY);
-    } else {
-      console.log(`⏭️ Skip ${nama} (status: ${status})`);
     }
   }
 
+  isRunning = false;
+
   notifier.notify({
     title: "Selesai",
-    message: "Semua screenshot SMS selesai!",
+    message: "Proses selesai",
   });
 
-  console.log("🎉 SELESAI SEMUA");
+  addLog("🎉 DONE");
 }
 
-// ================= GUI =================
+// ================= API =================
+app.get("/start", (req, res) => {
+  if (!checkDevice()) return res.send("❌ Device tidak ada");
+
+  processAll();
+  res.send("STARTED");
+});
+
+app.get("/stop", (req, res) => {
+  stopRequested = true;
+  res.send("STOPPED");
+});
+
+app.get("/logs", (req, res) => res.json(logs));
+
+app.get("/status", (req, res) => {
+  res.json({
+    progress,
+    done,
+    total,
+    running: isRunning,
+    lastImage,
+  });
+});
+
+// ================= UI =================
 app.get("/", (req, res) => {
   res.send(`
-    <html>
-    <head>
-      <title>SMS Bot</title>
-    </head>
-    <body style="font-family: Arial; text-align:center; margin-top:50px;">
-      <h2>SMS Screenshot Bot</h2>
+  <html>
+  <head>
+    <title>SMS BOT PRO</title>
 
-      <button style="padding:15px 30px; font-size:18px; cursor:pointer;"
-        onclick="startBot()">START</button>
+    <style>
+      body {
+        font-family: 'Segoe UI', sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        margin: 0;
+        padding: 0;
+      }
 
-      <p id="status"></p>
+      .container {
+        max-width: 900px;
+        margin: auto;
+        padding: 20px;
+      }
 
-      <script>
-        function startBot() {
-          document.getElementById('status').innerText = "Proses berjalan...";
-          fetch('/start')
-            .then(res => res.text())
-            .then(data => {
-              document.getElementById('status').innerText = data;
-            });
+      h1 {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      .card {
+        background: #1e293b;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      }
+
+      button {
+        padding: 12px 20px;
+        border: none;
+        border-radius: 8px;
+        margin: 5px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .start { background: #22c55e; color: white; }
+      .stop { background: #ef4444; color: white; }
+
+      .progress-bar {
+        width: 100%;
+        background: #334155;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 10px;
+      }
+
+      .progress-fill {
+        height: 20px;
+        width: 0%;
+        background: linear-gradient(90deg, #22c55e, #4ade80);
+        transition: 0.3s;
+      }
+
+      .preview {
+        text-align: center;
+      }
+
+      .preview img {
+        max-width: 100%;
+        border-radius: 10px;
+        border: 1px solid #334155;
+      }
+
+      .logs {
+        background: #020617;
+        padding: 10px;
+        height: 250px;
+        overflow: auto;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .status {
+        display: flex;
+        justify-content: space-between;
+        font-size: 14px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+
+      <h1>🚀 SMS BOT DASHBOARD</h1>
+
+      <div class="card" style="text-align:center">
+        <button class="start" onclick="start()">START</button>
+        <button class="stop" onclick="stop()">STOP</button>
+      </div>
+
+      <div class="card">
+        <h3>📊 Progress</h3>
+        <div class="progress-bar">
+          <div id="bar" class="progress-fill"></div>
+        </div>
+
+        <div class="status">
+          <span id="percent">0%</span>
+          <span id="count">0 / 0</span>
+        </div>
+      </div>
+
+      <div class="card preview">
+        <h3>📸 Preview</h3>
+        <img id="preview" />
+      </div>
+
+      <div class="card">
+        <h3>📄 Logs</h3>
+        <div id="logs" class="logs"></div>
+      </div>
+
+    </div>
+
+    <script>
+      function start(){ fetch('/start'); }
+      function stop(){ fetch('/stop'); }
+
+      async function load(){
+        const s = await fetch('/status').then(r=>r.json());
+        const l = await fetch('/logs').then(r=>r.json());
+
+        document.getElementById('percent').innerText = s.progress + "%";
+        document.getElementById('count').innerText = s.done + " / " + s.total;
+        document.getElementById('bar').style.width = s.progress + "%";
+
+        if(s.lastImage){
+          document.getElementById('preview').src = s.lastImage + "?t=" + Date.now();
         }
-      </script>
-    </body>
-    </html>
+
+        document.getElementById('logs').innerText = l.join("\\n");
+      }
+
+      setInterval(load, 1000);
+    </script>
+
+  </body>
+  </html>
   `);
 });
 
-// ================= START BOT =================
-app.get("/start", async (req, res) => {
-  res.send("Proses dimulai...");
-  processAll();
-});
 
-// ================= RUN SERVER =================
+// ================= RUN =================
 app.listen(PORT, () => {
-  console.log("🚀 Buka di browser: http://localhost:3000");
+  console.log("🚀 http://localhost:3000");
 });
