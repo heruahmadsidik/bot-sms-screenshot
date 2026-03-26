@@ -19,6 +19,13 @@ const app = express();
 const PORT = 3000;
 app.use(express.json());
 
+// ================= FOLDER & STATIC FILES =================
+const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
+if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
+
+app.use("/screenshots", express.static(SCREENSHOT_DIR));
+app.use("/lottie-files", express.static("C:\\Users\\herua\\Documents\\bot-sms\\lottie"));
+
 // ================= STATE =================
 let logs = [];
 let isRunning = false;
@@ -46,11 +53,6 @@ function addLog(msg, type) {
   logs.push(log);
   if (logs.length > 500) logs.shift();
 }
-
-// ================= FOLDER =================
-const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
-if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
-app.use("/screenshots", express.static(SCREENSHOT_DIR));
 
 // ================= GOOGLE =================
 const auth = new google.auth.GoogleAuth({
@@ -141,7 +143,8 @@ async function screenshotSMS(nomor, nama, rowIndex) {
       lastImages.unshift({
         src: imgPath, name: nama, nomor: nomor,
         time: new Date().toLocaleTimeString("id-ID", { hour12: false }),
-        size: (stat.size / 1024).toFixed(1) + " KB"
+        size: (stat.size / 1024).toFixed(1) + " KB",
+        status: "DONE"
       });
       if (lastImages.length > 20) lastImages.pop();
       addLog("📸 Screenshot berhasil: " + fileName, "ok");
@@ -156,6 +159,14 @@ async function screenshotSMS(nomor, nama, rowIndex) {
         await updateStatus(rowIndex, "FAILED");
         failed++;
         addLog("❌ GAGAL (maks retry): " + nama, "error");
+        // Tambahkan ke lastImages sebagai FAILED agar tampil di tabel rincian
+        lastImages.unshift({
+          src: null, name: nama, nomor: nomor,
+          time: new Date().toLocaleTimeString("id-ID", { hour12: false }),
+          size: "-",
+          status: "FAILED"
+        });
+        if (lastImages.length > 20) lastImages.pop();
       }
     }
   }
@@ -198,10 +209,14 @@ app.get("/start",  (req, res) => {
 app.get("/stop",   (req, res) => { stopRequested = true; res.json({ ok: true }); });
 app.get("/logs",   (req, res) => res.json(logs));
 app.get("/status", (req, res) => {
-  const doneC = sheetData.filter(r => r[2] === 'DONE').length;
-  const failC = sheetData.filter(r => r[2] === 'FAILED').length;
-  const pendC = sheetData.filter(r => !r[2] || r[2] === '' || r[2] === 'READY').length;
-  res.json({ progress, done, total, failed, running: isRunning, lastImages, counts: { total: sheetData.length, done: doneC, pending: pendC, failed: failC } });
+  const doneC    = sheetData.filter(r => r[2] === 'DONE').length;
+  const failC    = sheetData.filter(r => r[2] === 'FAILED').length;
+  const pendC    = sheetData.filter(r => !r[2] || r[2] === '' || r[2] === 'READY').length;
+  res.json({
+    progress, done, total, failed, running: isRunning,
+    lastImages,
+    counts: { total: sheetData.length, done: doneC, pending: pendC, failed: failC }
+  });
 });
 app.post("/config", (req, res) => {
   const b = req.body || {};
@@ -213,7 +228,7 @@ app.post("/config", (req, res) => {
 });
 app.get("/config", (req, res) => res.json(CONFIG));
 
-// ================= UI =================
+// ================= UI (HTML) =================
 app.get("/", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="id">
@@ -251,7 +266,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .hero-adb-label{font-family:var(--orb);font-size:10px;color:var(--cyan);letter-spacing:1px;}
 .hero-adb-port{font-family:var(--mono);font-size:10px;color:var(--text3);}
 
-/* HERO ICON LOTTIE */
 .hero-adb-icon{width:50px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 
 .hero-divider{width:1px;height:36px;background:var(--border2);}
@@ -268,7 +282,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden;}
 .adb-body{display:flex;align-items:center;padding:15px 24px;gap:0;}
 
-/* DEVICE ICON LOTTIE */
 .dev-icon{width:70px;height:70px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:16px;}
 
 .dev-info{flex:1;}
@@ -310,7 +323,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .ca .sc-val{color:var(--amber);text-shadow:0 0 20px rgba(255,171,0,.4);}
 .cr .sc-val{color:var(--red);text-shadow:0 0 20px rgba(255,61,87,.4);}
 .sc-desc{font-size:11px;color:var(--text2);}
-.sc-bg{position:absolute;right:12px;bottom:10px;font-size:44px;opacity:1;filter:drop-shadow(0 0 4px rgba(255,255,255,.2));}
+.sc-bg{position:absolute;right:8px;bottom:8px;width:75px;height:75px;opacity:0.85;pointer-events:none;}
 
 .three-col{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px;margin-top:14px;}
 
@@ -338,6 +351,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mt td{padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);}
 .mt tr:hover td{background:rgba(0,212,255,.03);}
 .bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
+.bd-fail{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
 
 .cfg-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
 .cfg-grp{display:flex;flex-direction:column;gap:4px;}
@@ -364,9 +378,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .footer{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 0 8px;border-top:1px solid var(--border);margin-top:20px;}
 .footer-gh{font-family:var(--mono);font-size:11px;color:var(--cyan);text-decoration:none;display:flex;align-items:center;gap:6px;}
 
-@keyframes prog-stripe{0%{background-position:0 0;}100%{background-position:40px 0;}}
-.prog-fill-active{background:repeating-linear-gradient(90deg,var(--cyan) 0px,rgba(0,212,255,.7) 10px,var(--cyan) 20px);background-size:40px 100%;animation:prog-stripe .6s linear infinite;}
-
 #viewer{position:fixed;inset:0;background:rgba(5,8,15,.95);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:999;}
 #viewer.show{display:flex;}
 .vbox{position:relative;}
@@ -375,6 +386,10 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .vcap{text-align:center;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text2);}
 
 #filePickerInput{display:none;}
+
+/* Green dot pulse for connected state */
+@keyframes pulse-green{0%,100%{box-shadow:0 0 0 0 rgba(0,230,118,.5);}50%{box-shadow:0 0 0 5px rgba(0,230,118,0);}}
+.dot-green{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse-green 2s ease-in-out infinite;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -437,29 +452,44 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 
 <!-- STAT CARDS -->
 <div class="stat-grid">
+  <!-- TOTAL KONTAK -->
   <div class="sc cc">
     <div class="sc-lbl">Total Kontak</div>
     <div class="sc-val" id="stTotal">0</div>
     <div class="sc-desc">dari spreadsheet</div>
-    <div class="sc-bg">👥</div>
+    <div class="sc-bg">
+      <dotlottie-player src="/lottie-files/Document OCR Scan.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+    </div>
   </div>
+
+  <!-- SELESAI -->
   <div class="sc cg">
     <div class="sc-lbl">Selesai</div>
     <div class="sc-val" id="stDone">0</div>
     <div class="sc-desc">screenshot diambil</div>
-    <div class="sc-bg">✅</div>
+    <div class="sc-bg">
+      <dotlottie-player src="/lottie-files/check loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+    </div>
   </div>
+
+  <!-- PENDING -->
   <div class="sc ca">
     <div class="sc-lbl">Pending</div>
     <div class="sc-val" id="stPending">0</div>
     <div class="sc-desc">menunggu antrian</div>
-    <div class="sc-bg">⏳</div>
+    <div class="sc-bg">
+      <dotlottie-player src="/lottie-files/Clock_loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+    </div>
   </div>
+
+  <!-- GAGAL -->
   <div class="sc cr">
     <div class="sc-lbl">Gagal</div>
     <div class="sc-val" id="stFailed">0</div>
     <div class="sc-desc">perlu dicek ulang</div>
-    <div class="sc-bg">❌</div>
+    <div class="sc-bg">
+      <dotlottie-player src="/lottie-files/Cross_loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+    </div>
   </div>
 </div>
 
@@ -479,14 +509,14 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   <div class="panel">
     <div class="ph">
       <div class="pt">Rincian Per Kontak</div>
-      <div class="pa">
+      <div class="pa" style="display:flex;align-items:center;gap:8px;">
         <span class="ml" id="rincianCount">0 data</span>
         <button class="mb mbc" onclick="doRefresh()">↻</button>
       </div>
     </div>
     <div class="mt-wrap">
       <table class="mt">
-        <thead><tr><th>Waktu</th><th>Nama/Lapor</th><th>Nomor</th><th>Status</th></tr></thead>
+        <thead><tr><th>Waktu</th><th>No Lapor</th><th>No Telepon</th><th>Status</th></tr></thead>
         <tbody id="rincianBody"></tbody>
       </table>
     </div>
@@ -534,7 +564,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   </div>
 </div>
 
-</div><!-- /wrap -->
+</div>
 
 <input type="file" id="filePickerInput" onchange="document.getElementById('cfgAdb').value=this.files[0].name" />
 
@@ -600,13 +630,13 @@ async function poll(){
   ]);
   if(!s) return;
 
-  // Device Info & Badge (Lottie Live Indictor)
   const b = document.getElementById('adbBadge');
   const runLottie = document.getElementById('runLottie');
   const liveAnim = '<dotlottie-player src="https://lottie.host/67702f74-3382-4113-9827-023a39775079/U7H6XpPZ6H.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>';
 
   if(d && d.connected){
-    b.innerHTML = '<div class="pdot-lottie">' + liveAnim + '</div> Terhubung';
+    // ✅ FIX 1: Lingkaran hijau berdenyut menggantikan ⚠️
+    b.innerHTML = '<span class="dot-green"></span> Terhubung';
     b.className = 'hero-device-badge';
     document.getElementById('devName').textContent = d.info.name || 'Device';
     document.getElementById('devSerial').textContent = 'Serial: ' + (d.info.serial || '—');
@@ -618,7 +648,6 @@ async function poll(){
     document.getElementById('devTags').innerHTML = '<span class="tag ta">Disconnected</span>';
   }
 
-  // Stats
   if(s.counts){
     document.getElementById('stTotal').textContent=s.counts.total;
     document.getElementById('stDone').textContent=s.counts.done;
@@ -628,35 +657,38 @@ async function poll(){
   document.getElementById('pDone').textContent=s.done;
   document.getElementById('pTotal').textContent=s.total;
 
-  // Progress Bar
   const pf=document.getElementById('progFill');
   pf.style.width=s.progress+'%';
   pf.className = s.running ? 'prog-fill prog-fill-active' : 'prog-fill';
 
-  // Terminal Status Lottie
   if(s.running) {
     if(!runLottie.innerHTML) runLottie.innerHTML = liveAnim;
   } else {
     runLottie.innerHTML = '';
   }
 
-  // Rincian Table
+  // ✅ FIX 2: Tabel rincian tampilkan DONE dan FAILED dari lastImages
   if(s.lastImages && s.lastImages.length){
-    document.getElementById('rincianCount').textContent=s.lastImages.length+' data';
-    document.getElementById('rincianBody').innerHTML=s.lastImages.map(img=>(
-      '<tr><td class="ml">'+img.time+'</td><td>'+esc(img.name)+'</td><td class="ml">'+esc(img.nomor)+'</td><td><span class="bd">DONE</span></td></tr>'
-    )).join('');
+    document.getElementById('rincianCount').textContent = s.lastImages.length + ' data';
+    document.getElementById('rincianBody').innerHTML = s.lastImages.map(img => {
+      const isFailed = img.status === 'FAILED';
+      const badge = isFailed
+        ? '<span class="bd-fail">FAILED</span>'
+        : '<span class="bd">DONE</span>';
+      return '<tr><td class="ml">' + img.time + '</td><td>' + esc(img.name) + '</td><td class="ml">' + esc(img.nomor) + '</td><td>' + badge + '</td></tr>';
+    }).join('');
   }
 
-  // Gallery
   if(JSON.stringify(prevImg)!==JSON.stringify(s.lastImages)){
     prevImg=s.lastImages;
     const g=document.getElementById('gallery');
-    document.getElementById('imgLbl').textContent=s.lastImages.length+' file';
-    if(!s.lastImages.length) g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
+    // Hitung hanya yang DONE untuk gallery
+    const doneImgs = s.lastImages.filter(img => img.status !== 'FAILED');
+    document.getElementById('imgLbl').textContent = doneImgs.length + ' file';
+    if(!doneImgs.length) g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
     else {
       g.innerHTML='';
-      s.lastImages.forEach(img=>{
+      doneImgs.forEach(img=>{
         const div=document.createElement('div');
         div.className='g-item';
         div.innerHTML='<img src="'+img.src+'" loading="lazy"><div class="g-lbl">'+esc(img.name)+'<br><span class="g-size">'+img.size+'</span></div>';
@@ -666,7 +698,6 @@ async function poll(){
     }
   }
 
-  // Logs
   if(l.length!==prevLogLen){
     prevLogLen=l.length;
     const lb=document.getElementById('logBody');
