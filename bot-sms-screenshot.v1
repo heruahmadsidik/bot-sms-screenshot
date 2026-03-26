@@ -3,63 +3,65 @@ const { google } = require("googleapis");
 const { execSync } = require("child_process");
 const notifier = require("node-notifier");
 const fs = require("fs");
+const path = require("path");
 
 // ================= CONFIG =================
-
-// GANTI DENGAN SPREADSHEET ID KAMU
 const SPREADSHEET_ID = "1MlYstlcJdUurTSthIabeWdpjVwOgDdN8B3cWQso1H78";
-
-// GANTI DENGAN NAMA SHEET
 const SHEET_NAME = "Sheet1";
-
-// Delay antar nomor (ms)
 const DELAY = 5000;
-
-// Retry kalau gagal
 const RETRY = 2;
-
-// PATH ADB (WAJIB BENAR)
 const ADB_PATH = "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe";
 
 // ==========================================
 
 const app = express();
+const PORT = 3000;
 
-// Buat folder screenshots jika belum ada
-if (!fs.existsSync("screenshots")) {
-  fs.mkdirSync("screenshots");
+// folder screenshot
+const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
+if (!fs.existsSync(SCREENSHOT_DIR)) {
+  fs.mkdirSync(SCREENSHOT_DIR);
 }
 
 // ================= GOOGLE AUTH =================
-
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-// ================= AMBIL DATA =================
+// ================= UTIL =================
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
+function safeName(text) {
+  return text
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, "_")
+    .replace(/_+/g, "_");
+}
+
+// ================= AMBIL DATA =================
 async function getData() {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: ${SHEET_NAME}!A2:C,
+    range: `${SHEET_NAME}!A2:C`,
   });
 
   return res.data.values || [];
 }
 
 // ================= UPDATE STATUS =================
-
 async function updateStatus(rowIndex, status) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: ${SHEET_NAME}!C${rowIndex},
+    range: `${SHEET_NAME}!C${rowIndex}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [[status]],
@@ -67,61 +69,64 @@ async function updateStatus(rowIndex, status) {
   });
 }
 
-// ================= DELAY =================
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // ================= SCREENSHOT =================
-
 async function screenshotSMS(nomor, nama, rowIndex) {
   let attempt = 0;
 
   while (attempt <= RETRY) {
     try {
-      console.log(📱 Buka SMS: ${nomor});
+      console.log(`📱 Buka SMS: ${nomor}`);
 
       // buka SMS
-      execSync("${ADB_PATH}" shell am start -a android.intent.action.VIEW -d sms:${nomor});
+      execSync(
+        `"${ADB_PATH}" shell am start -a android.intent.action.VIEW -d sms:${nomor}`
+      );
 
       await sleep(4000);
 
-      const filePath = screenshots/${nama}.png;
+      const safe = safeName(nama);
+      const fileName = `${safe}_${Date.now()}.png`;
+      const filePath = path.join(SCREENSHOT_DIR, fileName);
 
-      // screenshot FULL layar (tanpa crop)
-      execSync("${ADB_PATH}" exec-out screencap -p > "${filePath}");
+      // screenshot
+      execSync(
+        `"${ADB_PATH}" exec-out screencap -p > "${filePath}"`,
+        { shell: true }
+      );
 
-      console.log(✅ Selesai: ${nama});
+      console.log(`✅ Selesai: ${nama}`);
+      console.log(`💾 Tersimpan: ${filePath}`);
 
       await updateStatus(rowIndex, "DONE");
       return;
 
     } catch (err) {
       attempt++;
-      console.log(⚠️ Retry ${attempt} untuk ${nomor});
+      console.log(`⚠️ Retry ${attempt} untuk ${nomor}`);
       console.log(err.message);
+
+      if (attempt > RETRY) {
+        console.log(`❌ Gagal: ${nomor}`);
+        await updateStatus(rowIndex, "FAILED");
+      }
     }
   }
-
-  console.log(❌ Gagal: ${nomor});
-  await updateStatus(rowIndex, "FAILED");
 }
 
 // ================= PROSES UTAMA =================
-
 async function processAll() {
   const data = await getData();
 
   for (let i = 0; i < data.length; i++) {
     const [nama, nomor, status] = data[i];
 
-    // proses jika status kosong atau READY
+    if (!nama || !nomor) continue;
+
     if (!status || status.trim() === "" || status === "READY") {
       await screenshotSMS(nomor, nama, i + 2);
       await sleep(DELAY);
     } else {
-      console.log(⏭️ Skip ${nama} (status: ${status}));
+      console.log(`⏭️ Skip ${nama} (status: ${status})`);
     }
   }
 
@@ -134,7 +139,6 @@ async function processAll() {
 }
 
 // ================= GUI =================
-
 app.get("/", (req, res) => {
   res.send(`
     <html>
@@ -143,6 +147,7 @@ app.get("/", (req, res) => {
     </head>
     <body style="font-family: Arial; text-align:center; margin-top:50px;">
       <h2>SMS Screenshot Bot</h2>
+
       <button style="padding:15px 30px; font-size:18px; cursor:pointer;"
         onclick="startBot()">START</button>
 
@@ -164,14 +169,12 @@ app.get("/", (req, res) => {
 });
 
 // ================= START BOT =================
-
 app.get("/start", async (req, res) => {
   res.send("Proses dimulai...");
   processAll();
 });
 
 // ================= RUN SERVER =================
-
-app.listen(3000, () => {
+app.listen(PORT, () => {
   console.log("🚀 Buka di browser: http://localhost:3000");
 });
