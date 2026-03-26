@@ -240,31 +240,28 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 /* FULL WIDTH */
 .wrap{position:relative;z-index:1;max-width:1600px;margin:0 auto;padding:0 24px 40px;}
 
-/* HERO - redesigned as top bar */
+/* HERO - top bar */
 .hero{display:flex;align-items:center;justify-content:space-between;padding:16px 0 14px;position:relative;}
 .hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);}
-.hero-left{display:flex;align-items:center;gap:14px;}
+.hero-left{display:flex;align-items:center;gap:14px;flex:1;}
 .hero-adb-info{display:flex;flex-direction:column;gap:2px;}
 .hero-adb-label{font-family:var(--orb);font-size:10px;color:var(--cyan);letter-spacing:1px;}
 .hero-adb-port{font-family:var(--mono);font-size:10px;color:var(--text3);}
 .hero-adb-icon{width:36px;height:36px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
 .hero-divider{width:1px;height:36px;background:var(--border2);}
-.hero-center{text-align:center;flex:1;}
+.hero-center{text-align:center;flex:1.5;}
 .hero-title{font-family:var(--orb);font-size:30px;font-weight:800;color:var(--cyan);letter-spacing:6px;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;}
 @keyframes tglow{0%,100%{text-shadow:0 0 20px rgba(0,212,255,.4),0 0 50px rgba(0,212,255,.15);}50%{text-shadow:0 0 35px rgba(0,212,255,.7),0 0 80px rgba(0,212,255,.3);}}
-.hero-sub{font-family:var(--orb);font-size:10px;letter-spacing:4px;color:var(--text2);margin-top:3px;}
-.hero-org{font-size:10px;letter-spacing:2px;color:var(--text3);margin-top:1px;}
-.hero-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);margin:6px auto 0;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
+.hero-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);margin:6px auto 4px;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:1;}
 .hero-device-badge{font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:6px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:8px;background:rgba(0,230,118,.05);}
 .hero-device-badge.off{border-color:var(--red);color:var(--red);background:rgba(255,61,87,.05);}
-.hero-device-detail{font-family:var(--mono);font-size:10px;color:var(--text3);text-align:right;}
 
-/* ADB PANEL - streamlined */
+/* ADB PANEL - Redesigned to include buttons */
 .adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden;}
-.adb-body{display:flex;align-items:center;padding:12px 20px;gap:16px;}
-.dev-icon{width:40px;height:64px;border:2px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;background:linear-gradient(180deg,rgba(0,212,255,.05),transparent);flex-shrink:0;}
+.adb-body{display:flex;align-items:center;padding:15px 24px;gap:0;}
+.dev-icon{width:40px;height:64px;border:2px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;background:linear-gradient(180deg,rgba(0,212,255,.05),transparent);flex-shrink:0;margin-right:16px;}
 .dev-info{flex:1;}
 .dev-name{font-weight:600;font-size:14px;color:var(--text);}
 .dev-serial{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;}
@@ -273,19 +270,23 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .tg{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);}
 .tc{background:rgba(0,212,255,.1);color:var(--cyan);border:1px solid rgba(0,212,255,.3);}
 .ta{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);}
-.prog-sec{padding-left:16px;border-left:1px solid var(--border);min-width:200px;}
-.prog-lbl{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
-.prog-nums{font-family:var(--orb);font-size:22px;color:var(--cyan);}
-.prog-sub{font-size:11px;color:var(--text3);margin-top:1px;}
-.prog-bar{height:5px;background:rgba(0,212,255,.1);border-radius:3px;overflow:hidden;margin-top:8px;}
-.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),rgba(0,212,255,.6));border-radius:3px;transition:width .6s;box-shadow:0 0 8px rgba(0,212,255,.5);width:0%;}
-.btn-row{display:flex;gap:10px;align-items:center;padding:10px 20px;border-top:1px solid var(--border);}
-.btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--body);font-size:13px;font-weight:600;padding:9px 20px;border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;}
+
+/* ADB MIDDLE ACTIONS */
+.adb-actions{flex:1;display:flex;justify-content:center;align-items:center;gap:12px;padding:0 30px;border-left:1px solid var(--border);border-right:1px solid var(--border);height:60px;}
+.btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--body);font-size:13px;font-weight:600;padding:10px 22px;border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;white-space:nowrap;}
 .btn:active{transform:scale(.97);}
 .btn-start{color:var(--green);border-color:var(--green);background:rgba(0,230,118,.08);}
 .btn-start:hover{background:rgba(0,230,118,.18);box-shadow:0 0 16px rgba(0,230,118,.3);}
 .btn-stop{color:var(--amber);border-color:var(--amber);background:rgba(255,171,0,.08);}
 .btn-stop:hover{background:rgba(255,171,0,.18);box-shadow:0 0 16px rgba(255,171,0,.3);}
+
+/* ADB PROGRESS */
+.prog-sec{flex:1;padding-left:30px;min-width:250px;}
+.prog-lbl{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
+.prog-nums{font-family:var(--orb);font-size:22px;color:var(--cyan);}
+.prog-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.prog-bar{height:5px;background:rgba(0,212,255,.1);border-radius:3px;overflow:hidden;margin-top:8px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),rgba(0,212,255,.6));border-radius:3px;transition:width .6s;box-shadow:0 0 8px rgba(0,212,255,.5);width:0%;}
 
 /* STAT CARDS */
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
@@ -304,7 +305,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .sc-desc{font-size:11px;color:var(--text2);}
 .sc-bg{position:absolute;right:12px;bottom:10px;font-size:44px;opacity:1;filter:drop-shadow(0 0 4px rgba(255,255,255,.2));}
 
-/* THREE COL LAYOUT - gallery left, config right */
+/* THREE COL LAYOUT */
 .three-col{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px;margin-top:14px;}
 
 /* PANEL */
@@ -324,13 +325,13 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mba:hover{background:rgba(255,171,0,.1);}
 .ml{font-family:var(--mono);font-size:10px;color:var(--text3);}
 
-/* GALLERY - scrollable, matching column height */
-.g-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;overflow-y:auto;max-height:600px;}
+/* GALLERY */
+.g-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px;overflow-y:auto;max-height:600px;}
 .g-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);cursor:pointer;background:var(--bg);transition:all .2s;}
 .g-item:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,212,255,.2);}
 .g-item img{width:100%;height:auto;display:block;}
-.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.9));padding:18px 5px 5px;font-size:9px;color:#ddd;font-family:var(--mono);text-align:center;line-height:1.4;}
-.g-size{font-size:8px;color:var(--cyan);opacity:.9;}
+.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.9));padding:14px 4px 4px;font-size:8px;color:#ddd;font-family:var(--mono);text-align:center;line-height:1.4;}
+.g-size{font-size:7px;color:var(--cyan);opacity:.9;}
 .g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12px;letter-spacing:1px;}
 
 /* MINI TABLE */
@@ -341,8 +342,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mt tr:last-child td{border-bottom:none;}
 .mt tr:hover td{background:rgba(0,212,255,.03);}
 .bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
-.br{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
-.bf{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-size:10px;padding:1px 8px;border-radius:3px;font-family:var(--mono);}
 
 /* CONFIG */
 .cfg-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
@@ -355,9 +354,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .bp{font-family:var(--mono);font-size:10px;padding:0 10px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .2s;}
 .bp:hover{background:rgba(0,212,255,.2);}
 .btn-save{font-family:var(--body);font-weight:600;font-size:13px;padding:9px;border-radius:6px;border:1px solid rgba(0,212,255,.4);cursor:pointer;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,77,255,.2));color:var(--cyan);text-align:center;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
-.btn-save:hover{background:linear-gradient(135deg,rgba(0,212,255,.3),rgba(124,77,255,.3));box-shadow:0 0 14px rgba(0,212,255,.3);}
 
-/* TERMINAL LOG - fixed height */
+/* TERMINAL LOG */
 .log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:var(--mono);font-size:11px;max-height:280px;min-height:200px;}
 .le{display:flex;gap:8px;padding:2px 0;line-height:1.6;}
 .lt{color:var(--text3);flex-shrink:0;}
@@ -370,48 +368,24 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .lm{color:var(--text);flex:1;}
 .le.latest .lm{color:var(--cyan);}
 
-/* FULL TABLE */
-.ft-section{margin-top:14px;}
-.tw{overflow-x:auto;}
-.ft{width:100%;border-collapse:collapse;font-size:13px;}
-.ft th{text-align:left;font-family:var(--mono);font-size:10px;font-weight:400;color:var(--text2);letter-spacing:1.5px;padding:9px 14px;border-bottom:1px solid var(--border);text-transform:uppercase;background:var(--bg3);}
-.ft td{padding:10px 14px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);}
-.ft tr:last-child td{border-bottom:none;}
-.ft tr:hover td{background:rgba(0,212,255,.03);}
-.nc{color:var(--text2);font-family:var(--mono);font-size:11px;}
-.nmc{font-weight:600;color:var(--text);}
-.noc{font-family:var(--mono);font-size:12px;color:var(--text2);}
-
-/* BOTTOM ROW */
-.bot-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
-
 /* FOOTER */
 .footer{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 0 8px;border-top:1px solid var(--border);margin-top:20px;}
-.footer-left{display:flex;flex-direction:column;gap:4px;}
-.footer-gh{font-family:var(--mono);font-size:11px;color:var(--cyan);text-decoration:none;letter-spacing:.5px;display:flex;align-items:center;gap:6px;transition:all .2s;}
-.footer-gh:hover{color:#fff;text-shadow:0 0 10px var(--cyan);}
-.footer-gh::before{content:'⎇';font-size:13px;}
-.footer-right{text-align:right;}
-.footer-built{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:1px;}
-.footer-copy{font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono);}
+.footer-gh{font-family:var(--mono);font-size:11px;color:var(--cyan);text-decoration:none;display:flex;align-items:center;gap:6px;}
 
 /* PROGRESS ANIMATION */
-@keyframes prog-pulse{0%,100%{box-shadow:0 0 6px rgba(0,212,255,.5);}50%{box-shadow:0 0 18px rgba(0,212,255,.9),0 0 30px rgba(0,212,255,.4);}}
 @keyframes prog-stripe{0%{background-position:0 0;}100%{background-position:40px 0;}}
-.prog-fill-active{background:repeating-linear-gradient(90deg,var(--cyan) 0px,rgba(0,212,255,.7) 10px,var(--cyan) 20px);background-size:40px 100%;animation:prog-stripe .6s linear infinite,prog-pulse 1.5s ease-in-out infinite;}
-.prog-nums-running{animation:numglow 1s ease-in-out infinite;}
-@keyframes numglow{0%,100%{text-shadow:0 0 8px rgba(0,212,255,.4);}50%{text-shadow:0 0 20px rgba(0,212,255,.9),0 0 40px rgba(0,212,255,.4);}}
+.prog-fill-active{background:repeating-linear-gradient(90deg,var(--cyan) 0px,rgba(0,212,255,.7) 10px,var(--cyan) 20px);background-size:40px 100%;animation:prog-stripe .6s linear infinite;}
 
 /* LIGHTBOX */
 #viewer{position:fixed;inset:0;background:rgba(5,8,15,.95);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:999;}
 #viewer.show{display:flex;}
 .vbox{position:relative;}
-#vImg{max-width:90vw;max-height:88vh;border-radius:8px;border:1px solid var(--border);box-shadow:0 0 60px rgba(0,212,255,.15);}
+#vImg{max-width:90vw;max-height:88vh;border-radius:8px;border:1px solid var(--border);}
 .vcls{position:absolute;top:-12px;right:-12px;width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;font-size:13px;color:white;display:flex;align-items:center;justify-content:center;}
 .vcap{text-align:center;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text2);}
 
-/* HIDDEN FILE INPUT */
-#filePickerInput{display:none;}
+/* HIDDEN INPUT */
+#filePickerInput,#folderPickerInput{display:none;}
 </style>
 </head>
 <body>
@@ -419,7 +393,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 
 <!-- HERO TOP BAR -->
 <div class="hero">
-  <!-- LEFT: ADB Info -->
   <div class="hero-left">
     <div class="hero-adb-icon">🤖</div>
     <div class="hero-adb-info">
@@ -433,22 +406,21 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
     </div>
   </div>
 
-  <!-- CENTER: Title -->
   <div class="hero-center">
     <div class="hero-title">COMMAND CENTER</div>
     <div class="hero-dot"></div>
   </div>
 
-  <!-- RIGHT: Device Status -->
   <div class="hero-right">
     <div id="adbBadge" class="hero-device-badge off">● Mengecek device...</div>
-    <div id="devSerial" class="hero-device-detail">Hubungkan perangkat Android via USB</div>
+    <div id="devSerial" class="hero-adb-port" style="margin-top:4px;">Serial: Menunggu...</div>
   </div>
 </div>
 
-<!-- ADB PANEL -->
+<!-- ADB PANEL (Section 2 - Controls & Progress) -->
 <div class="adb-panel">
   <div class="adb-body">
+    <!-- Part 1: Device Info -->
     <div class="dev-icon">📱</div>
     <div class="dev-info">
       <div class="dev-name" id="devName">Menunggu device...</div>
@@ -456,17 +428,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
         <span class="tag ta">Disconnected</span>
       </div>
     </div>
+
+    <!-- Part 2: Actions (CENTERED) -->
+    <div class="adb-actions">
+      <button class="btn btn-start" onclick="doStart()">▶ Mulai Screenshot</button>
+      <button class="btn btn-stop"  onclick="doStop()">⏹ Stop</button>
+    </div>
+
+    <!-- Part 3: Progress -->
     <div class="prog-sec">
       <div class="prog-lbl">Progress Sesi Ini</div>
       <div class="prog-nums"><span id="pDone">0</span> / <span id="pTotal">0</span></div>
       <div class="prog-sub">screenshot diambil</div>
       <div class="prog-bar"><div id="progFill" class="prog-fill"></div></div>
     </div>
-  </div>
-
-  <div class="btn-row">
-    <button class="btn btn-start" onclick="doStart()">▶ Mulai Screenshot</button>
-    <button class="btn btn-stop"  onclick="doStop()">⏹ Stop</button>
   </div>
 </div>
 
@@ -498,9 +473,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   </div>
 </div>
 
-<!-- THREE COL: Gallery | Rincian | Log+Config -->
 <div class="three-col">
-
   <!-- GALLERY -->
   <div class="panel">
     <div class="ph">
@@ -523,18 +496,16 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
     </div>
     <div class="mt-wrap">
       <table class="mt">
-        <thead><tr><th>Waktu</th><th>No Lapor</th><th>Nomor</th><th>Status</th></tr></thead>
+        <thead><tr><th>Waktu</th><th>No Lapor</th><th>No Telepon</th><th>Status</th></tr></thead>
         <tbody id="rincianBody">
-          <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Belum ada data</td></tr>
+          <tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;">Belum ada data</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- TERMINAL LOG + KONFIGURASI -->
   <div style="display:flex;flex-direction:column;gap:14px;">
-
-    <!-- TERMINAL LOG (atas) -->
+    <!-- TERMINAL LOG -->
     <div class="panel">
       <div class="ph">
         <div class="pt"><span id="runDot" class="pdot" style="background:var(--text3);box-shadow:none;animation:none;"></span>Terminal Log</div>
@@ -543,7 +514,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       <div id="logBody" class="log-body"></div>
     </div>
 
-    <!-- KONFIGURASI (bawah) -->
+    <!-- KONFIGURASI -->
     <div class="panel">
       <div class="ph">
         <div class="pt"><span class="pdot da"></span>⚙ Konfigurasi</div>
@@ -551,59 +522,41 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       <div class="cfg-body">
         <div class="cfg-grp">
           <div class="cfg-lbl">Delay Antar SMS (detik)</div>
-          <input class="cfg-in" id="cfgDelay" type="number" value="5" min="1" max="30"/>
+          <input class="cfg-in" id="cfgDelay" type="number" value="5"/>
         </div>
         <div class="cfg-grp">
           <div class="cfg-lbl">Retry Jika Gagal</div>
-          <input class="cfg-in" id="cfgRetry" type="number" value="2" min="0" max="5"/>
-        </div>
-        <div class="cfg-grp">
-          <div class="cfg-lbl">📁 Folder Screenshot</div>
-          <div class="cfg-pr">
-            <input class="cfg-in" id="cfgSsDir" type="text" placeholder="C:\\Users\\...\\screenshots"/>
-            <button class="bp" onclick="pickFolder('cfgSsDir')">Pilih</button>
-          </div>
-        </div>
-        <div class="cfg-grp">
-          <div class="cfg-lbl">📁 Folder Project</div>
-          <div class="cfg-pr">
-            <input class="cfg-in" id="cfgProjDir" type="text" placeholder="C:\\Users\\...\\bot-sms"/>
-            <button class="bp" onclick="pickFolder('cfgProjDir')">Pilih</button>
-          </div>
+          <input class="cfg-in" id="cfgRetry" type="number" value="2"/>
         </div>
         <div class="cfg-grp">
           <div class="cfg-lbl">📱 ADB Path</div>
           <div class="cfg-pr">
-            <input class="cfg-in" id="cfgAdb" type="text" placeholder="C:\\Users\\...\\adb.exe"/>
-            <button class="bp" onclick="pickFile('cfgAdb')">Pilih</button>
+            <input class="cfg-in" id="cfgAdb" type="text"/>
+            <button class="bp" onclick="document.getElementById('filePickerInput').click()">Pilih</button>
           </div>
         </div>
         <button class="btn-save" onclick="saveConfig()">💾 Simpan Konfigurasi</button>
       </div>
     </div>
-
   </div>
 </div>
 
 <!-- FOOTER -->
 <div class="footer">
-  <div class="footer-left">
-    <a href="https://github.com/heruahmadsidik/bot-sms-screenshot" target="_blank" rel="noopener" class="footer-gh">https://github.com/heruahmadsidik/bot-sms-screenshot</a>
-  </div>
-  <div class="footer-right">
-    <div class="footer-built">Built with bismillah by: Heru Ahmad Sidik</div>
-    <div class="footer-copy">&#174; Copyright 2026</div>
+  <a href="https://github.com/heruahmadsidik/bot-sms-screenshot" target="_blank" class="footer-gh">⎇ GitHub Repository</a>
+  <div style="text-align:right;">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text2);">Built by: Heru Ahmad Sidik</div>
+    <div style="font-size:10px;color:var(--text3);">&#174; Copyright 2026</div>
   </div>
 </div>
 
 </div><!-- /wrap -->
 
-<!-- HIDDEN FILE/FOLDER INPUT -->
-<input type="file" id="filePickerInput" />
-<input type="file" id="folderPickerInput" webkitdirectory />
+<!-- HIDDEN INPUTS -->
+<input type="file" id="filePickerInput" onchange="document.getElementById('cfgAdb').value=this.files[0].name" />
 
 <!-- LIGHTBOX -->
-<div id="viewer" onclick="cvClose(event)">
+<div id="viewer" onclick="if(event.target===this)this.classList.remove('show')">
   <div class="vbox">
     <button class="vcls" onclick="document.getElementById('viewer').classList.remove('show')">✕</button>
     <img id="vImg" src="" alt="">
@@ -614,67 +567,18 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <script>
 let prevImg=[], prevLogLen=0;
 
-// File/Folder picker using native browser input
-function pickFile(targetId) {
-  const inp = document.getElementById('filePickerInput');
-  inp.accept = '.exe,*';
-  inp.onchange = function(e) {
-    const file = e.target.files[0];
-    if (file) {
-      // Try to get full path - modern browsers block this for security
-      // We show the file name and let user manually edit if needed
-      const val = file.name;
-      // Try webkitRelativePath or use file name
-      document.getElementById(targetId).value = file.name;
-      // Show hint
-      showPathHint(targetId, file.name);
-    }
-    inp.value = '';
-  };
-  inp.click();
-}
-
-function pickFolder(targetId) {
-  const inp = document.getElementById('folderPickerInput');
-  inp.onchange = function(e) {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      // Get folder path from webkitRelativePath
-      const rel = files[0].webkitRelativePath;
-      const folderName = rel ? rel.split('/')[0] : files[0].name;
-      document.getElementById(targetId).value = folderName;
-      showPathHint(targetId, folderName);
-    }
-    inp.value = '';
-  };
-  inp.click();
-}
-
-function showPathHint(targetId, name) {
-  const inp = document.getElementById(targetId);
-  inp.style.borderColor = 'var(--cyan)';
-  inp.title = 'Nama: ' + name + ' — Ketik path lengkap jika perlu (browser tidak mengizinkan akses path penuh)';
-  setTimeout(() => { inp.style.borderColor = ''; }, 2000);
-}
-
-// Actions
 async function doStart(){
-  // Reset gallery display immediately
   prevImg=[];
-  document.getElementById('gallery').innerHTML='<div class="g-empty">Memulai sesi baru...</div>';
-  document.getElementById('imgLbl').textContent='0 file';
-  document.getElementById('rincianBody').innerHTML='<tr><td colspan="4" style="color:var(--text3);text-align:center;padding:16px;font-size:11px;">Memulai...</td></tr>';
-  document.getElementById('rincianCount').textContent='0 data';
+  document.getElementById('gallery').innerHTML='<div class="g-empty">Memulai...</div>';
   const r=await fetch('/start').then(x=>x.json()).catch(()=>({ok:false}));
   if(!r.ok){ alert(r.msg||'Gagal memulai'); return; }
-  // immediately refresh sheet so total count updates
   await fetch('/refresh-sheet');
 }
+
 function doStop(){ fetch('/stop'); }
-async function doRefresh(){ await fetch('/refresh-sheet'); await loadSheet(); }
+async function doRefresh(){ await fetch('/refresh-sheet'); loadSheet(); }
 function clearLog(){ document.getElementById('logBody').innerHTML=''; }
 
-function cvClose(e){ if(e.target===document.getElementById('viewer')) document.getElementById('viewer').classList.remove('show'); }
 function openViewer(src,cap){
   document.getElementById('vImg').src=src;
   document.getElementById('vCap').textContent=cap||'';
@@ -685,42 +589,24 @@ async function saveConfig(){
   const d=parseInt(document.getElementById('cfgDelay').value)||5;
   const r=parseInt(document.getElementById('cfgRetry').value)||2;
   const a=document.getElementById('cfgAdb').value;
-  const ss=document.getElementById('cfgSsDir').value;
-  const pj=document.getElementById('cfgProjDir').value;
-  const res=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delay:d,retry:r,adbPath:a,ssDir:ss,projDir:pj})});
+  const res=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delay:d,retry:r,adbPath:a})});
   const data=await res.json();
-  if(data.ok){
-    const btn=document.querySelector('.btn-save');
-    const orig=btn.innerHTML;
-    btn.innerHTML='✅ Tersimpan!';
-    btn.style.borderColor='var(--green)';
-    btn.style.color='var(--green)';
-    setTimeout(()=>{btn.innerHTML=orig;btn.style.borderColor='';btn.style.color='';},2000);
-  }
+  if(data.ok) alert('Konfigurasi disimpan');
 }
 
-// Load config on init
 async function loadConfig(){
   const c=await fetch('/config').then(r=>r.json()).catch(()=>null);
   if(!c) return;
   if(c.delay) document.getElementById('cfgDelay').value=c.delay/1000;
   if(c.retry!=null) document.getElementById('cfgRetry').value=c.retry;
   if(c.adbPath) document.getElementById('cfgAdb').value=c.adbPath;
-  if(c.ssDir) document.getElementById('cfgSsDir').value=c.ssDir;
-  if(c.projDir) document.getElementById('cfgProjDir').value=c.projDir;
 }
 
 async function loadSheet(){
   const d=await fetch('/sheet-data').then(r=>r.json()).catch(()=>null);
   if(!d) return;
   const rows=d.rows||[];
-  const doneC=rows.filter(r=>r[2]==='DONE').length;
-  const failC=rows.filter(r=>r[2]==='FAILED').length;
-  const pendC=rows.filter(r=>!r[2]||r[2]===''||r[2]==='READY').length;
   document.getElementById('stTotal').textContent=rows.length;
-  document.getElementById('stDone').textContent=doneC;
-  document.getElementById('stPending').textContent=pendC;
-  document.getElementById('stFailed').textContent=failC;
 }
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -733,25 +619,22 @@ async function poll(){
   ]);
   if(!s) return;
 
-  // Device
+  // Device Info
   if(d){
     const b=document.getElementById('adbBadge');
     if(d.connected){
-      b.textContent='● '+(d.info.name||'Device')+' — Terhubung';
-      b.className='hero-device-badge';
+      b.textContent='● Terhubung'; b.className='hero-device-badge';
       document.getElementById('devName').textContent=d.info.name||'Device';
-      document.getElementById('devSerial').textContent='Serial: '+(d.info.serial||'—')+' · Android '+(d.info.android||'—');
-      document.getElementById('devTags').innerHTML='<span class="tag tg">Device Ready</span>'+(d.info.android?'<span class="tag tc">Android '+d.info.android+'</span>':'')+(d.info.usbDebug?'<span class="tag ta">USB Debug: ON</span>':'');
+      document.getElementById('devSerial').textContent='Serial: '+(d.info.serial||'—');
+      document.getElementById('devTags').innerHTML='<span class="tag tg">Ready</span><span class="tag tc">Android '+d.info.android+'</span>';
     } else {
-      b.textContent='● Tidak Ada Device';
-      b.className='hero-device-badge off';
-      document.getElementById('devName').textContent='Tidak ada device terdeteksi';
-      document.getElementById('devSerial').textContent='Hubungkan perangkat Android via USB';
+      b.textContent='● Terputus'; b.className='hero-device-badge off';
+      document.getElementById('devName').textContent='Device Tidak Ada';
       document.getElementById('devTags').innerHTML='<span class="tag ta">Disconnected</span>';
     }
   }
 
-  // Stat cards - real-time from server counts
+  // Stats
   if(s.counts){
     document.getElementById('stTotal').textContent=s.counts.total;
     document.getElementById('stDone').textContent=s.counts.done;
@@ -761,84 +644,61 @@ async function poll(){
   document.getElementById('pDone').textContent=s.done;
   document.getElementById('pTotal').textContent=s.total;
 
-  // Progress bar animation
+  // Progress Bar
   const pf=document.getElementById('progFill');
   pf.style.width=s.progress+'%';
-  if(s.running && s.total>0){
-    pf.className='prog-fill prog-fill-active';
-    document.getElementById('pDone').closest('.prog-nums').className='prog-nums prog-nums-running';
-  } else {
-    pf.className='prog-fill';
-    document.getElementById('pDone').closest('.prog-nums').className='prog-nums';
-  }
+  pf.className = s.running ? 'prog-fill prog-fill-active' : 'prog-fill';
 
-  // Running dot
-  const rd=document.getElementById('runDot');
-  if(s.running){ rd.className='pdot dg'; rd.style=''; }
-  else { rd.style='background:var(--text3);box-shadow:none;animation:none;'; }
+  // Running State
+  document.getElementById('runDot').className = s.running ? 'pdot dg' : 'pdot';
 
-  // Rincian - include phone number from sheetData lookup
-  if(s.lastImages&&s.lastImages.length){
-    const rb=document.getElementById('rincianBody');
+  // Rincian Table
+  if(s.lastImages && s.lastImages.length){
     document.getElementById('rincianCount').textContent=s.lastImages.length+' data';
-    rb.innerHTML=s.lastImages.map(img=>{
-      const nomor=img.nomor||'—';
-      return '<tr><td class="nc">'+(img.time||'--:--')+'</td><td>'+esc(img.name||'—')+'</td><td class="noc">'+esc(nomor)+'</td><td><span class="bd">BERHASIL</span></td></tr>';
-    }).join('');
+    document.getElementById('rincianBody').innerHTML=s.lastImages.map(img=>(
+      '<tr><td class="ml">'+img.time+'</td><td>'+esc(img.name)+'</td><td class="ml">'+esc(img.nomor)+'</td><td><span class="bd">DONE</span></td></tr>'
+    )).join('');
   }
 
-  // Gallery - fixed height, show actual file size
+  // Gallery
   if(JSON.stringify(prevImg)!==JSON.stringify(s.lastImages)){
     prevImg=s.lastImages;
     const g=document.getElementById('gallery');
     document.getElementById('imgLbl').textContent=s.lastImages.length+' file';
-    if(!s.lastImages.length){
-      g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
-    } else {
+    if(!s.lastImages.length) g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
+    else {
       g.innerHTML='';
       s.lastImages.forEach(img=>{
-        const src=img.src||img;
-        const name=img.name||src.split('/').pop().replace('.png','');
-        const time=img.time||'';
-        const size=img.size||'';
         const div=document.createElement('div');
         div.className='g-item';
-        div.innerHTML='<img src="'+src+'" alt="'+esc(name)+'" loading="lazy"><div class="g-lbl">'+esc(name)+'<br><span class="g-size">'+esc(size)+'</span></div>';
-        div.onclick=()=>openViewer(src,name+' · '+time+' · '+size);
+        div.innerHTML='<img src="'+img.src+'" loading="lazy"><div class="g-lbl">'+esc(img.name)+'<br><span class="g-size">'+img.size+'</span></div>';
+        div.onclick=()=>openViewer(img.src, img.name);
         g.appendChild(div);
       });
     }
   }
 
-  // Logs - fixed height (CSS handles it)
+  // Logs
   if(l.length!==prevLogLen){
     prevLogLen=l.length;
     const lb=document.getElementById('logBody');
-    const atBottom=lb.scrollHeight-lb.scrollTop-lb.clientHeight<80;
     const typeMap={ok:'OK',warn:'WARN',error:'ERR',info:'INFO',log:'LOG'};
     const cls={ok:'lok',warn:'lwarn',error:'lerr',info:'linf',log:'llog'};
-    lb.innerHTML='';
-    l.forEach((log,i)=>{
-      const div=document.createElement('div');
-      div.className='le'+(i===l.length-1?' latest':'');
-      div.innerHTML='<span class="lt">'+log.time+'</span><span class="ltype '+(cls[log.type]||'llog')+'">'+(typeMap[log.type]||'LOG')+'</span><span class="lm">'+esc(log.text)+'</span>';
-      lb.appendChild(div);
-    });
-    if(atBottom) lb.scrollTop=lb.scrollHeight;
+    lb.innerHTML=l.map((log,i)=>(
+      '<div class="le '+(i===l.length-1?'latest':'')+'"><span class="lt">'+log.time+'</span><span class="ltype '+(cls[log.type]||'llog')+'">'+(typeMap[log.type]||'LOG')+'</span><span class="lm">'+esc(log.text)+'</span></div>'
+    )).join('');
+    lb.scrollTop=lb.scrollHeight;
   }
 }
 
 loadConfig();
 loadSheet();
-setInterval(poll,1200);
-poll();
+setInterval(poll,1500);
 </script>
 </body>
 </html>`);
 });
 
-// ================= RUN =================
 app.listen(PORT, () => {
   addLog("🚀 Server aktif di http://localhost:" + PORT, "info");
-  console.log("🚀 http://localhost:" + PORT);
 });
