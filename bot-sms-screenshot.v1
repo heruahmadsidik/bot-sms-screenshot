@@ -37,8 +37,7 @@ function sleep(ms) {
 function safeName(text) {
   return text
     .trim()
-    .replace(/[^a-zA-Z0-9]/g, "_")
-    .replace(/_+/g, "_");
+    .replace(/[\\/:*?"<>|]/g, ""); // hanya hapus karakter ilegal
 }
 
 // ================= AMBIL DATA =================
@@ -85,7 +84,7 @@ async function screenshotSMS(nomor, nama, rowIndex) {
       await sleep(4000);
 
       const safe = safeName(nama);
-      const fileName = `${safe}_${Date.now()}.png`;
+      const fileName = `${safe}.png`;
       const filePath = path.join(SCREENSHOT_DIR, fileName);
 
       // screenshot
