@@ -9,7 +9,7 @@ const path = require("path");
 const SPREADSHEET_ID = "1MlYstlcJdUurTSthIabeWdpjVwOgDdN8B3cWQso1H78";
 const SHEET_NAME = "Sheet1";
 let CONFIG = { 
-  delay: 5000, 
+  delay: 3000, 
   retry: 2, 
   adbPath: "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe" 
 };
@@ -25,6 +25,7 @@ if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
 
 app.use("/screenshots", express.static(SCREENSHOT_DIR));
 app.use("/lottie-files", express.static("C:\\Users\\herua\\Documents\\bot-sms\\lottie"));
+// file untuk folder lottie format json
 
 // ================= STATE =================
 let logs = [];
@@ -159,7 +160,6 @@ async function screenshotSMS(nomor, nama, rowIndex) {
         await updateStatus(rowIndex, "FAILED");
         failed++;
         addLog("❌ GAGAL (maks retry): " + nama, "error");
-        // Tambahkan ke lastImages sebagai FAILED agar tampil di tabel rincian
         lastImages.unshift({
           src: null, name: nama, nomor: nomor,
           time: new Date().toLocaleTimeString("id-ID", { hour12: false }),
@@ -239,7 +239,7 @@ app.get("/", (req, res) => {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
 <!-- LOTTIE PLAYER -->
-<script src="https://unpkg.com/@dotlottie/player-component@latest/dist/dotlottie-player.mjs" type="module"></script>
+<script src="https://unpkg.com/@dotlottie/player-component@latest/dist/dotlottie-player.mjs" type="module"><\/script>
 <style>
 :root{
   --bg:#0a0f1a; --bg2:#0d1525; --bg3:#111d30;
@@ -390,6 +390,11 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 /* Green dot pulse for connected state */
 @keyframes pulse-green{0%,100%{box-shadow:0 0 0 0 rgba(0,230,118,.5);}50%{box-shadow:0 0 0 5px rgba(0,230,118,0);}}
 .dot-green{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse-green 2s ease-in-out infinite;flex-shrink:0;}
+
+/* Warning icon disconnect */
+@keyframes pulse-red{0%,100%{box-shadow:0 0 0 0 rgba(255,61,87,.7),0 0 12px rgba(255,61,87,.5);}50%{box-shadow:0 0 0 10px rgba(255,61,87,0),0 0 24px rgba(255,61,87,.2);}}
+.warn-icon{width:54px;height:54px;border-radius:50%;background:rgba(255,61,87,.12);border:2px solid var(--red);display:flex;align-items:center;justify-content:center;animation:pulse-red 1.6s ease-in-out infinite;box-shadow:0 0 12px rgba(255,61,87,.5);}
+.warn-icon svg{width:28px;height:28px;}
 </style>
 </head>
 <body>
@@ -399,22 +404,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <div class="hero">
   <div class="hero-left">
     <div class="hero-adb-icon">
-      <dotlottie-player src="https://lottie.host/5155b7e5-348f-4085-b714-4e3f8d8bceb8/9PK8h6mWso.lottie" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+      <dotlottie-player src="/lottie-files/TalkBotAnimation.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
     </div>
     <div class="hero-adb-info">
-      <div class="hero-adb-label">ADB Control Panel</div>
+      <div class="hero-adb-label">Callback <br> Control System</div>
       <div class="hero-adb-port">port 3000 · v2.0</div>
     </div>
     <div class="hero-divider"></div>
-    <div class="hero-adb-info">
-      <div class="hero-adb-label" style="color:var(--text2);">PLN UP2D Banten</div>
-      <div class="hero-adb-port">Bot Screenshot</div>
+    <div style="display:flex;align-items:center;justify-content:center;">
+      <img src="/lottie-files/pnes.png" style="height:50px;width:auto;object-fit:contain;" alt="PLN">
     </div>
   </div>
 
   <div class="hero-center">
     <div class="hero-title">COMMAND CENTER</div>
-    <div class="hero-dot"></div>
   </div>
 
   <div class="hero-right">
@@ -426,8 +429,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <!-- ADB PANEL -->
 <div class="adb-panel">
   <div class="adb-body">
-    <div class="dev-icon">
-      <dotlottie-player src="https://lottie.host/5ddf37b9-94fd-441a-99aa-9e10b8284438/ZRy6NxXHva.lottie" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+    <div class="dev-icon" id="devIcon">
+      <dotlottie-player src="/lottie-files/phone.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
     </div>
     <div class="dev-info">
       <div class="dev-name" id="devName">Menunggu device...</div>
@@ -634,18 +637,23 @@ async function poll(){
   const runLottie = document.getElementById('runLottie');
   const liveAnim = '<dotlottie-player src="https://lottie.host/67702f74-3382-4113-9827-023a39775079/U7H6XpPZ6H.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>';
 
+  const devIcon = document.getElementById('devIcon');
+  const phoneAnim = '<dotlottie-player src="/lottie-files/phone.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>';
+  const warnAnim  = '<div class="warn-icon"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L1.5 20h21L12 2z" fill="rgba(255,61,87,.2)" stroke="#ff3d57" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="14" stroke="#ff3d57" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="#ff3d57"/></svg></div>';
+
   if(d && d.connected){
-    // ✅ FIX 1: Lingkaran hijau berdenyut menggantikan ⚠️
     b.innerHTML = '<span class="dot-green"></span> Terhubung';
     b.className = 'hero-device-badge';
     document.getElementById('devName').textContent = d.info.name || 'Device';
     document.getElementById('devSerial').textContent = 'Serial: ' + (d.info.serial || '—');
     document.getElementById('devTags').innerHTML = '<span class="tag tg">Ready</span><span class="tag tc">Android '+d.info.android+'</span>';
+    if(!devIcon.querySelector('dotlottie-player')) devIcon.innerHTML = phoneAnim;
   } else {
     b.innerHTML = '● Terputus';
     b.className = 'hero-device-badge off';
     document.getElementById('devName').textContent = 'Device Tidak Ada';
     document.getElementById('devTags').innerHTML = '<span class="tag ta">Disconnected</span>';
+    if(!devIcon.querySelector('.warn-icon')) devIcon.innerHTML = warnAnim;
   }
 
   if(s.counts){
@@ -667,7 +675,6 @@ async function poll(){
     runLottie.innerHTML = '';
   }
 
-  // ✅ FIX 2: Tabel rincian tampilkan DONE dan FAILED dari lastImages
   if(s.lastImages && s.lastImages.length){
     document.getElementById('rincianCount').textContent = s.lastImages.length + ' data';
     document.getElementById('rincianBody').innerHTML = s.lastImages.map(img => {
@@ -682,7 +689,6 @@ async function poll(){
   if(JSON.stringify(prevImg)!==JSON.stringify(s.lastImages)){
     prevImg=s.lastImages;
     const g=document.getElementById('gallery');
-    // Hitung hanya yang DONE untuk gallery
     const doneImgs = s.lastImages.filter(img => img.status !== 'FAILED');
     document.getElementById('imgLbl').textContent = doneImgs.length + ' file';
     if(!doneImgs.length) g.innerHTML='<div class="g-empty">Belum ada screenshot</div>';
@@ -713,7 +719,7 @@ async function poll(){
 loadConfig();
 loadSheet();
 setInterval(poll,1500);
-</script>
+<\/script>
 </body>
 </html>`);
 });
