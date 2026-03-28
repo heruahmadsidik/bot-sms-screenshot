@@ -13,7 +13,6 @@ let CONFIG = {
   retry: 2, 
   adbPath: "C:\\Users\\herua\\Documents\\bot-sms\\platform-tools\\adb.exe" 
 };
-// ==========================================
 
 const app = express();
 const PORT = 3000;
@@ -22,10 +21,8 @@ app.use(express.json());
 // ================= FOLDER & STATIC FILES =================
 const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
 if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
-
 app.use("/screenshots", express.static(SCREENSHOT_DIR));
 app.use("/lottie-files", express.static("C:\\Users\\herua\\Documents\\bot-sms\\lottie"));
-// file untuk folder lottie format json
 
 // ================= STATE =================
 let logs = [];
@@ -37,7 +34,7 @@ let done = 0;
 let failed = 0;
 let lastImages = [];
 let sheetData = [];
-let deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false };
+let deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false, screenOn: false };
 
 // ================= LOG =================
 function addLog(msg, type) {
@@ -65,6 +62,21 @@ const auth = new google.auth.GoogleAuth({
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function safeName(t) { return t.trim().replace(/[\\/:*?"<>|]/g, ""); }
 
+// ================= SCREEN =================
+function isScreenOn() {
+  try {
+    const out = execSync('"' + CONFIG.adbPath + '" shell dumpsys power').toString();
+    return out.includes("mWakefulness=Awake") || out.includes("Display Power: state=ON");
+  } catch (e) { return false; }
+}
+
+function wakeScreen() {
+  try {
+    execSync('"' + CONFIG.adbPath + '" shell input keyevent 26');
+    return true;
+  } catch (e) { return false; }
+}
+
 // ================= DEVICE =================
 function checkDevice() {
   try {
@@ -78,9 +90,10 @@ function getDeviceInfo() {
     const model  = execSync('"' + CONFIG.adbPath + '" shell getprop ro.product.model').toString().trim();
     const serial = execSync('"' + CONFIG.adbPath + '" shell getprop ro.serialno').toString().trim();
     const ver    = execSync('"' + CONFIG.adbPath + '" shell getprop ro.build.version.release').toString().trim();
-    deviceInfo = { name: model, serial, android: ver, usbDebug: true };
+    const screenState = isScreenOn();
+    deviceInfo = { name: model, serial, android: ver, usbDebug: true, screenOn: screenState };
   } catch (e) {
-    deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false };
+    deviceInfo = { name: "Unknown", serial: "", android: "", usbDebug: false, screenOn: false };
   }
 }
 
@@ -133,6 +146,28 @@ async function screenshotSMS(nomor, nama, rowIndex) {
   let attempt = 0;
   while (attempt <= CONFIG.retry) {
     try {
+      if (!checkDevice()) {
+        addLog("Screenshot tidak bisa dilakukan karena tidak ada sambungan ke devices", "error");
+        while (!checkDevice()) {
+          if (stopRequested) return;
+          await sleep(3000);
+        }
+        addLog("✅ Device terhubung kembali, melanjutkan proses...", "ok");
+      }
+
+      if (!isScreenOn()) {
+        addLog("Screenshot dijeda saat layar mati, tolong hidupkan kembali layar", "warn");
+        while (!isScreenOn()) {
+          if (stopRequested) return;
+          if (!checkDevice()) {
+            addLog("Screenshot tidak bisa dilakukan karena tidak ada sambungan ke devices", "error");
+          }
+          await sleep(3000);
+          if (deviceInfo.usbDebug) deviceInfo.screenOn = isScreenOn();
+        }
+        addLog("✅ Layar sudah menyala, melanjutkan proses...", "ok");
+      }
+
       addLog("📱 Membuka SMS: " + nama + " (" + nomor + ")", "log");
       execSync('"' + CONFIG.adbPath + '" shell am start -a android.intent.action.VIEW -d sms:' + nomor);
       await sleep(4000);
@@ -147,7 +182,7 @@ async function screenshotSMS(nomor, nama, rowIndex) {
         size: (stat.size / 1024).toFixed(1) + " KB",
         status: "DONE"
       });
-      if (lastImages.length > 20) lastImages.pop();
+      if (lastImages.length > 150) lastImages.pop();
       addLog("📸 Screenshot berhasil: " + fileName, "ok");
       await updateStatus(rowIndex, "DONE");
       done++;
@@ -155,7 +190,7 @@ async function screenshotSMS(nomor, nama, rowIndex) {
       return;
     } catch (e) {
       attempt++;
-      addLog("⚠️ Gagal, retry " + attempt + "/" + CONFIG.retry + ": " + nama, "warn");
+      addLog("Retry " + attempt + "/" + CONFIG.retry + ": " + nama, "warn");
       if (attempt > CONFIG.retry) {
         await updateStatus(rowIndex, "FAILED");
         failed++;
@@ -166,7 +201,7 @@ async function screenshotSMS(nomor, nama, rowIndex) {
           size: "-",
           status: "FAILED"
         });
-        if (lastImages.length > 20) lastImages.pop();
+        if (lastImages.length > 150) lastImages.pop();
       }
     }
   }
@@ -179,6 +214,7 @@ async function processAll() {
   stopRequested = false;
   done = 0; failed = 0; progress = 0;
   addLog("🚀 Proses dimulai", "info");
+
   try {
     const data = await getData();
     const pending = data.filter(d => !d[2] || d[2] === "" || d[2] === "READY");
@@ -194,6 +230,7 @@ async function processAll() {
       }
     }
   } catch (e) { addLog("❌ Error: " + e.message, "error"); }
+
   isRunning = false;
   notifier.notify({ title: "Bot SMS Selesai", message: done + " berhasil, " + failed + " gagal" });
   addLog("🎉 Selesai — " + done + " berhasil, " + failed + " gagal", "ok");
@@ -236,18 +273,13 @@ app.get("/", (req, res) => {
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bot SMS — Command Center</title>
-<!-- Facebook Sans / Optimistic font stack via CDN -->
 <style>
 @font-face {
   font-family: 'Facebook Sans';
-  src: local('Optimistic Text'),
-       local('Optimistic Display'),
-       local('Facebook Sans');
-  font-weight: 100 900;
-  font-style: normal;
+  src: local('Optimistic Text'), local('Optimistic Display'), local('Facebook Sans');
+  font-weight: 100 900; font-style: normal;
 }
 </style>
-<!-- LOTTIE PLAYER -->
 <script src="https://unpkg.com/@dotlottie/player-component@latest/dist/dotlottie-player.mjs" type="module"><\/script>
 <style>
 :root{
@@ -255,13 +287,8 @@ app.get("/", (req, res) => {
   --border:#1e2d45; --border2:#243550;
   --cyan:#00d4ff; --green:#00e676; --red:#ff3d57; --amber:#ffab00; --purple:#7c4dff;
   --text:#e8edf8; --text2:#b0c4de; --text3:#7a90b0;
-
-  /* ===== FACEBOOK SANS FONT STACK ===== */
-  --fb-sans: 'Facebook Sans', 'Optimistic Text', 'Optimistic Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-  --mono: 'Facebook Sans', 'Optimistic Text', ui-monospace, 'Courier New', monospace;
-  --body: var(--fb-sans);
-  --orb: var(--fb-sans);
-  /* ===================================== */
+  --fb-sans:'Facebook Sans','Optimistic Text','Optimistic Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  --mono:'Facebook Sans','Optimistic Text',ui-monospace,'Courier New',monospace;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
@@ -271,128 +298,151 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 
-.wrap{position:relative;z-index:1;max-width:1600px;margin:0 auto;padding:0 24px 40px;}
+.wrap{position:relative;z-index:1;max-width:1600px;margin:0 auto;padding:0 clamp(8px,2vw,24px) 40px;}
 
 /* HERO */
-.hero{display:flex;align-items:center;justify-content:space-between;padding:16px 0 14px;position:relative;}
+.hero{display:flex;align-items:center;justify-content:space-between;padding:12px 0 12px;position:relative;gap:8px;flex-wrap:wrap;}
 .hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);}
-.hero-left{display:flex;align-items:center;gap:14px;flex:1;}
-.hero-adb-info{display:flex;flex-direction:column;gap:2px;}
-.hero-adb-label{font-family:var(--fb-sans);font-size:10px;font-weight:700;color:var(--cyan);letter-spacing:1px;text-transform:uppercase;}
-.hero-adb-port{font-family:var(--fb-sans);font-size:10px;color:var(--text3);}
-
-.hero-adb-icon{width:50px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-
-.hero-divider{width:1px;height:36px;background:var(--border2);}
-.hero-center{text-align:center;flex:1.5;}
-.hero-title{font-family:var(--fb-sans);font-size:30px;font-weight:800;color:var(--cyan);letter-spacing:6px;text-transform:uppercase;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;}
+.hero-left{display:flex;align-items:center;gap:clamp(6px,1vw,14px);flex:1;min-width:0;}
+.hero-adb-info{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.hero-adb-label{font-family:var(--fb-sans);font-size:clamp(8px,1vw,10px);font-weight:700;color:var(--cyan);letter-spacing:1px;text-transform:none;}
+.hero-adb-port{font-family:var(--fb-sans);font-size:clamp(8px,1vw,10px);color:var(--text3);display:flex;align-items:center;gap:5px;}
+.hero-adb-icon{width:clamp(32px,4vw,50px);height:clamp(32px,4vw,50px);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.hero-divider{width:1px;height:30px;background:var(--border2);flex-shrink:0;}
+.hero-center{text-align:center;flex:1.2;min-width:0;}
+.hero-title{font-family:var(--fb-sans);font-size:clamp(14px,3vw,40px);font-weight:800;color:var(--cyan);letter-spacing:clamp(1px,0.5vw,3px);text-transform:uppercase;text-shadow:0 0 30px rgba(0,212,255,.5),0 0 60px rgba(0,212,255,.2);animation:tglow 3s ease-in-out infinite;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 @keyframes tglow{0%,100%{text-shadow:0 0 20px rgba(0,212,255,.4),0 0 50px rgba(0,212,255,.15);}50%{text-shadow:0 0 35px rgba(0,212,255,.7),0 0 80px rgba(0,212,255,.3);}}
-.hero-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);margin:6px auto 4px;box-shadow:0 0 10px var(--cyan);animation:blink 2s ease-in-out infinite;}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:1;}
-.hero-device-badge{font-family:var(--fb-sans);font-size:11px;font-weight:600;padding:6px 14px;border-radius:6px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:8px;background:rgba(0,230,118,.05);}
+.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:1;min-width:0;}
+.hero-device-badge{font-family:var(--fb-sans);font-size:clamp(9px,1vw,11px);font-weight:600;padding:5px clamp(6px,1vw,14px);border-radius:6px;border:1px solid var(--green);color:var(--green);display:flex;align-items:center;gap:6px;background:rgba(0,230,118,.05);white-space:nowrap;}
 .hero-device-badge.off{border-color:var(--red);color:var(--red);background:rgba(255,61,87,.05);}
 
+/* CHANGELOG TRIGGER BUTTON */
+.cl-trigger{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--cyan);color:var(--cyan);font-size:9px;font-weight:700;cursor:pointer;line-height:1;flex-shrink:0;transition:all .2s;background:transparent;}
+.cl-trigger:hover{background:rgba(0,212,255,.15);box-shadow:0 0 8px rgba(0,212,255,.4);}
+
 /* ADB PANEL */
-.adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden;}
-.adb-body{display:flex;align-items:center;padding:15px 24px;gap:0;}
-
-.dev-icon{width:70px;height:70px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:16px;}
-
-.dev-info{flex:1;}
-.dev-name{font-family:var(--fb-sans);font-weight:600;font-size:14px;color:var(--text);}
-.dev-serial{font-family:var(--fb-sans);font-size:10px;color:var(--text3);margin-top:2px;}
-.dev-tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
-.tag{font-family:var(--fb-sans);font-size:10px;font-weight:600;padding:2px 8px;border-radius:3px;}
+.adb-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-top:12px;overflow:hidden;}
+.adb-body{display:flex;align-items:center;padding:clamp(8px,1.5vw,15px) clamp(10px,2vw,24px);gap:0;position:relative;flex-wrap:wrap;}
+.dev-icon{width:clamp(44px,6vw,70px);height:clamp(44px,6vw,70px);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:clamp(8px,1.5vw,16px);}
+.dev-info{flex:1;min-width:0;max-width:35%;}
+.dev-name{font-family:var(--fb-sans);font-weight:600;font-size:clamp(11px,1.2vw,14px);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dev-serial{font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);color:var(--text3);margin-top:2px;}
+.dev-tags{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap;}
+.tag{font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);font-weight:600;padding:2px clamp(4px,0.6vw,8px);border-radius:3px;white-space:nowrap;}
 .tg{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);}
 .tc{background:rgba(0,212,255,.1);color:var(--cyan);border:1px solid rgba(0,212,255,.3);}
 .ta{background:rgba(255,171,0,.1);color:var(--amber);border:1px solid rgba(255,171,0,.3);}
+.ts{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);}
+.ts-off{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);}
 
-.adb-actions{flex:1;display:flex;justify-content:center;align-items:center;gap:12px;padding:0 30px;border-left:1px solid var(--border);border-right:1px solid var(--border);height:60px;}
-.btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fb-sans);font-size:13px;font-weight:600;padding:10px 22px;border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;white-space:nowrap;}
+@keyframes screen-pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,230,118,.5);}50%{box-shadow:0 0 0 4px rgba(0,230,118,0);}}
+.screen-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+.screen-dot.on{background:var(--green);box-shadow:0 0 6px var(--green);animation:screen-pulse 2s ease-in-out infinite;}
+.screen-dot.off{background:var(--red);box-shadow:0 0 6px var(--red);}
+
+.adb-actions{position:absolute;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:clamp(6px,1vw,12px);height:100%;pointer-events:none;}
+.adb-actions button{pointer-events:all;}
+.btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--fb-sans);font-size:clamp(10px,1.1vw,13px);font-weight:600;padding:clamp(6px,1vw,10px) clamp(10px,1.5vw,22px);border-radius:6px;border:1px solid;cursor:pointer;transition:all .2s;background:transparent;letter-spacing:.5px;white-space:nowrap;}
 .btn:active{transform:scale(.97);}
 .btn-start{color:var(--green);border-color:var(--green);background:rgba(0,230,118,.08);}
 .btn-start:hover{background:rgba(0,230,118,.18);box-shadow:0 0 16px rgba(0,230,118,.3);}
 .btn-stop{color:var(--amber);border-color:var(--amber);background:rgba(255,171,0,.08);}
 .btn-stop:hover{background:rgba(255,171,0,.18);box-shadow:0 0 16px rgba(255,171,0,.3);}
 
-.prog-sec{flex:1;padding-left:30px;min-width:250px;}
-.prog-lbl{font-family:var(--fb-sans);font-size:10px;font-weight:600;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
-.prog-nums{font-family:var(--fb-sans);font-size:22px;font-weight:800;color:var(--cyan);}
-.prog-sub{font-family:var(--fb-sans);font-size:11px;color:var(--text3);margin-top:1px;}
-.prog-bar{height:5px;background:rgba(0,212,255,.1);border-radius:3px;overflow:hidden;margin-top:8px;}
-.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),rgba(0,212,255,.6));border-radius:3px;transition:width .6s;box-shadow:0 0 8px rgba(0,212,255,.5);width:0%;}
+/* PROGRESS NEON */
+.prog-sec{flex:1;padding-left:clamp(10px,2vw,30px);min-width:180px;max-width:35%;margin-left:auto;}
+.prog-lbl{font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);font-weight:600;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;}
+.prog-nums{font-family:var(--fb-sans);font-size:clamp(16px,2vw,22px);font-weight:800;color:var(--cyan);}
+.prog-sub{font-family:var(--fb-sans);font-size:clamp(9px,1vw,11px);color:var(--text3);margin-top:1px;}
+.prog-outer{position:relative;height:10px;background:rgba(0,212,255,.08);border-radius:5px;overflow:visible;margin-top:10px;}
+.prog-track{position:absolute;inset:0;border-radius:5px;overflow:hidden;}
+.prog-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--cyan),var(--purple));position:relative;transition:width .4s cubic-bezier(.4,0,.2,1);width:0%;}
+.prog-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:60px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3));animation:sweep 1.8s ease-in-out infinite;}
+@keyframes sweep{0%{opacity:0;transform:translateX(-30px);}50%{opacity:1;}100%{opacity:0;transform:translateX(10px);}}
+.prog-glow{position:absolute;top:50%;left:0;height:2px;transform:translateY(-50%);border-radius:5px;filter:blur(4px);background:linear-gradient(90deg,var(--cyan),var(--purple));pointer-events:none;transition:width .4s cubic-bezier(.4,0,.2,1);width:0%;}
+.prog-head{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--cyan);transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(0,212,255,.2);transition:left .4s cubic-bezier(.4,0,.2,1);pointer-events:none;left:0%;}
+.prog-head::before{content:'';position:absolute;inset:-4px;border-radius:50%;border:1.5px solid rgba(0,212,255,.5);animation:ringanim 1.2s ease-out infinite;}
+@keyframes ringanim{0%{transform:scale(1);opacity:.7;}100%{transform:scale(2.2);opacity:0;}}
 
 /* STAT CARDS */
-.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
-.sc{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;position:relative;overflow:hidden;}
+.stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(6px,1vw,12px);margin-top:12px;}
+.sc{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:clamp(10px,1.5vw,16px);position:relative;overflow:visible;}
 .sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
 .sc.cc::before{background:var(--cyan);box-shadow:0 0 8px var(--cyan);}
 .sc.cg::before{background:var(--green);box-shadow:0 0 8px var(--green);}
 .sc.ca::before{background:var(--amber);box-shadow:0 0 8px var(--amber);}
 .sc.cr::before{background:var(--red);box-shadow:0 0 8px var(--red);}
-.sc-lbl{font-family:var(--fb-sans);font-size:10px;font-weight:700;letter-spacing:2px;color:var(--text2);text-transform:uppercase;}
-.sc-val{font-family:var(--fb-sans);font-size:38px;font-weight:800;line-height:1;margin:8px 0 4px;}
+.sc-lbl{font-family:var(--fb-sans);font-size:clamp(9px,1vw,12px);font-weight:700;letter-spacing:1px;color:var(--text2);text-transform:none;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.sc-val{font-family:var(--fb-sans);font-size:clamp(24px,3.5vw,38px);font-weight:800;line-height:1;margin:6px 0 4px;}
 .cc .sc-val{color:var(--cyan);text-shadow:0 0 20px rgba(0,212,255,.4);}
 .cg .sc-val{color:var(--green);text-shadow:0 0 20px rgba(0,230,118,.4);}
 .ca .sc-val{color:var(--amber);text-shadow:0 0 20px rgba(255,171,0,.4);}
 .cr .sc-val{color:var(--red);text-shadow:0 0 20px rgba(255,61,87,.4);}
-.sc-desc{font-family:var(--fb-sans);font-size:11px;color:var(--text2);}
-.sc-bg{position:absolute;right:8px;bottom:8px;width:75px;height:75px;opacity:0.85;pointer-events:none;}
+.sc-desc{font-family:var(--fb-sans);font-size:clamp(9px,1vw,11px);color:var(--text2);}
+.sc-bg{position:absolute;right:8px;bottom:8px;width:clamp(40px,6vw,75px);height:clamp(40px,6vw,75px);opacity:0.85;pointer-events:none;overflow:hidden;}
 
-.three-col{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px;margin-top:14px;}
+/* TOOLTIP */
+.tip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--text3);color:var(--text3);font-size:9px;font-weight:700;cursor:default;position:relative;vertical-align:middle;line-height:1;flex-shrink:0;transition:border-color .2s,color .2s;}
+.tip::after{content:attr(data-tip);position:absolute;top:50%;left:calc(100% + 10px);transform:translateY(-50%) translateX(-6px);background:#0d1f35;color:var(--text);font-family:var(--fb-sans);font-size:11px;font-weight:400;white-space:nowrap;padding:6px 12px;border-radius:6px;border:1px solid var(--border2);box-shadow:0 6px 20px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:999;}
+.tip:hover::after{opacity:1;transform:translateY(-50%) translateX(0);}
+.tip:hover{border-color:var(--cyan);color:var(--cyan);}
+.tip.left::after{left:auto;right:calc(100% + 10px);transform:translateY(-50%) translateX(6px);}
+.tip.left:hover::after{transform:translateY(-50%) translateX(0);}
 
-.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;}
-.ph{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
-.pt{font-family:var(--fb-sans);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
-.pdot-lottie{width:18px;height:18px;display:inline-block;vertical-align:middle;}
-
-.mb{font-family:var(--fb-sans);font-size:10px;font-weight:600;padding:3px 10px;border-radius:4px;border:1px solid;cursor:pointer;background:transparent;transition:all .15s;}
+/* 3 KOLOM */
+.three-col{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:clamp(6px,1vw,14px);margin-top:12px;}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:visible;display:flex;flex-direction:column;}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:clamp(7px,1vw,10px) clamp(8px,1.2vw,14px);border-bottom:1px solid var(--border);flex-shrink:0;gap:6px;}
+.pt{font-family:var(--fb-sans);font-size:clamp(9px,1vw,12px);font-weight:700;letter-spacing:1px;text-transform:none;display:flex;align-items:center;gap:6px;min-width:0;}
+.pdot-lottie{width:16px;height:16px;display:inline-block;vertical-align:middle;flex-shrink:0;}
+.mb{font-family:var(--fb-sans);font-size:clamp(9px,0.9vw,10px);font-weight:600;padding:3px 8px;border-radius:4px;border:1px solid;cursor:pointer;background:transparent;transition:all .15s;flex-shrink:0;}
 .mbc{color:var(--cyan);border-color:rgba(0,212,255,.4);}
 .mba{color:var(--amber);border-color:rgba(255,171,0,.4);}
-.ml{font-family:var(--fb-sans);font-size:10px;color:var(--text3);}
-
-.g-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px;overflow-y:auto;max-height:600px;}
-.g-item{position:relative;border-radius:6px;overflow:hidden;border:1px solid var(--border);cursor:pointer;background:var(--bg);transition:all .2s;}
+.ml{font-family:var(--fb-sans);font-size:clamp(9px,0.9vw,10px);color:var(--text3);flex-shrink:0;}
+.g-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;padding:8px;overflow-y:auto;max-height:520px;}
+.g-item{position:relative;border-radius:6px;overflow:visible;border:1px solid var(--border);cursor:pointer;background:var(--bg);transition:all .2s;}
 .g-item:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,212,255,.2);}
 .g-item img{width:100%;height:auto;display:block;}
-.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.9));padding:14px 4px 4px;font-family:var(--fb-sans);font-size:8px;color:#ddd;text-align:center;line-height:1.4;}
-.g-size{font-size:7px;color:var(--cyan);opacity:.9;}
-.g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-family:var(--fb-sans);font-size:12px;letter-spacing:1px;}
-
-.mt-wrap{padding:0 14px 12px;overflow-y:auto;max-height:600px;}
-.mt{width:100%;border-collapse:collapse;font-size:12px;}
-.mt th{text-align:left;font-family:var(--fb-sans);font-size:10px;font-weight:700;color:var(--text2);letter-spacing:1px;padding:6px 8px;border-bottom:1px solid var(--border);text-transform:uppercase;}
-.mt td{font-family:var(--fb-sans);padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);}
+.g-lbl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.9));padding:14px 4px 4px;font-family:var(--fb-sans);font-size:7px;color:#ddd;text-align:center;line-height:1.4;}
+.g-size{font-size:6px;color:var(--cyan);opacity:.9;}
+.g-empty{grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-family:var(--fb-sans);font-size:clamp(10px,1vw,12px);letter-spacing:1px;}
+.mt-wrap{padding:0 clamp(8px,1.2vw,14px) 12px;overflow-y:auto;max-height:520px;}
+.mt{width:100%;border-collapse:collapse;font-size:clamp(10px,1vw,12px);}
+.mt th{text-align:left;font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);font-weight:700;color:var(--text2);letter-spacing:1px;padding:6px 6px;border-bottom:1px solid var(--border);text-transform:uppercase;}
+.mt td{font-family:var(--fb-sans);padding:6px 6px;border-bottom:1px solid rgba(30,45,69,.5);color:var(--text);font-size:clamp(10px,1vw,12px);}
 .mt tr:hover td{background:rgba(0,212,255,.03);}
-.bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-family:var(--fb-sans);font-size:10px;font-weight:700;padding:1px 8px;border-radius:3px;}
-.bd-fail{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-family:var(--fb-sans);font-size:10px;font-weight:700;padding:1px 8px;border-radius:3px;}
-
-.cfg-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
+.bd{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.3);font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);font-weight:700;padding:1px 6px;border-radius:3px;}
+.bd-fail{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.3);font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);font-weight:700;padding:1px 6px;border-radius:3px;}
+.cfg-body{padding:clamp(8px,1.2vw,14px);display:flex;flex-direction:column;gap:8px;}
 .cfg-grp{display:flex;flex-direction:column;gap:4px;}
-.cfg-lbl{font-family:var(--fb-sans);font-size:10px;font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase;}
-.cfg-in{background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-family:var(--fb-sans);font-size:12px;padding:7px 10px;width:100%;transition:border-color .2s;}
+.cfg-lbl{font-family:var(--fb-sans);font-size:clamp(9px,0.9vw,10px);font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase;}
+.cfg-in{background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-family:var(--fb-sans);font-size:clamp(10px,1vw,12px);padding:6px 8px;width:100%;transition:border-color .2s;}
 .cfg-in:focus{outline:none;border-color:var(--cyan);}
 .cfg-pr{display:flex;gap:6px;}
 .cfg-pr .cfg-in{flex:1;}
-.bp{font-family:var(--fb-sans);font-size:10px;font-weight:600;padding:0 10px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .2s;}
-.btn-save{font-family:var(--fb-sans);font-weight:700;font-size:13px;padding:9px;border-radius:6px;border:1px solid rgba(0,212,255,.4);cursor:pointer;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,77,255,.2));color:var(--cyan);text-align:center;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.bp{font-family:var(--fb-sans);font-size:clamp(9px,0.9vw,10px);font-weight:600;padding:0 8px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);color:var(--cyan);border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .2s;}
+.btn-save{font-family:var(--fb-sans);font-weight:700;font-size:clamp(10px,1.1vw,13px);padding:8px;border-radius:6px;border:1px solid rgba(0,212,255,.4);cursor:pointer;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,77,255,.2));color:var(--cyan);text-align:center;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
 
-.log-body{flex:1;overflow-y:auto;padding:8px 10px;font-family:var(--fb-sans);font-size:11px;max-height:280px;min-height:200px;}
-.le{display:flex;gap:8px;padding:2px 0;line-height:1.6;}
-.lt{color:var(--text3);flex-shrink:0;font-family:var(--fb-sans);}
-.ltype{flex-shrink:0;font-family:var(--fb-sans);font-size:10px;font-weight:700;padding:0 5px;border-radius:2px;align-self:flex-start;margin-top:2px;}
+/* LOG */
+.log-body{flex:1;overflow-y:auto;padding:6px 8px;font-family:var(--fb-sans);font-size:clamp(9px,0.95vw,11px);max-height:260px;min-height:160px;}
+.le{display:flex;gap:6px;padding:2px 0;line-height:1.6;align-items:flex-start;}
+.lt{color:var(--text3);flex-shrink:0;font-family:var(--fb-sans);font-size:clamp(9px,0.9vw,10px);}
+.ltype{flex-shrink:0;font-family:var(--fb-sans);font-size:clamp(8px,0.85vw,10px);font-weight:700;padding:0 4px;border-radius:2px;align-self:flex-start;margin-top:2px;min-width:28px;text-align:center;}
 .lok{background:rgba(0,230,118,.15);color:var(--green);}
 .lwarn{background:rgba(255,171,0,.15);color:var(--amber);}
 .lerr{background:rgba(255,61,87,.15);color:var(--red);}
 .linf{background:rgba(0,212,255,.15);color:var(--cyan);}
 .llog{background:rgba(255,255,255,.05);color:var(--text2);}
-.lm{font-family:var(--fb-sans);color:var(--text);flex:1;}
+.lm{font-family:var(--fb-sans);color:var(--text);flex:1;font-size:clamp(9px,0.95vw,11px);}
 .le.latest .lm{color:var(--cyan);}
+.log-running-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:logdotpulse 1s ease-in-out infinite;vertical-align:middle;margin-right:4px;flex-shrink:0;}
+@keyframes logdotpulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.4);opacity:.5;}}
 
-.footer{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 0 8px;border-top:1px solid var(--border);margin-top:20px;}
-.footer-gh{font-family:var(--fb-sans);font-size:11px;color:var(--cyan);text-decoration:none;display:flex;align-items:center;gap:6px;}
+/* FOOTER */
+.footer{display:flex;align-items:flex-end;justify-content:space-between;padding:16px 0 8px;border-top:1px solid var(--border);margin-top:16px;flex-wrap:wrap;gap:8px;}
+.footer-gh{font-family:var(--fb-sans);font-size:clamp(9px,1vw,11px);color:var(--cyan);text-decoration:none;display:flex;align-items:center;gap:6px;}
 
+/* IMAGE VIEWER */
 #viewer{position:fixed;inset:0;background:rgba(5,8,15,.95);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:999;}
 #viewer.show{display:flex;}
 .vbox{position:relative;}
@@ -400,16 +450,42 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .vcls{position:absolute;top:-12px;right:-12px;width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;font-size:13px;color:white;display:flex;align-items:center;justify-content:center;}
 .vcap{text-align:center;margin-top:10px;font-family:var(--fb-sans);font-size:11px;color:var(--text2);}
 
+/* MISC */
 #filePickerInput{display:none;}
-
-/* Green dot pulse for connected state */
 @keyframes pulse-green{0%,100%{box-shadow:0 0 0 0 rgba(0,230,118,.5);}50%{box-shadow:0 0 0 5px rgba(0,230,118,0);}}
 .dot-green{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse-green 2s ease-in-out infinite;flex-shrink:0;}
-
-/* Warning icon disconnect */
 @keyframes pulse-red{0%,100%{box-shadow:0 0 0 0 rgba(255,61,87,.7),0 0 12px rgba(255,61,87,.5);}50%{box-shadow:0 0 0 10px rgba(255,61,87,0),0 0 24px rgba(255,61,87,.2);}}
-.warn-icon{width:54px;height:54px;border-radius:50%;background:rgba(255,61,87,.12);border:2px solid var(--red);display:flex;align-items:center;justify-content:center;animation:pulse-red 1.6s ease-in-out infinite;box-shadow:0 0 12px rgba(255,61,87,.5);}
+.warn-icon{width:clamp(36px,5vw,54px);height:clamp(36px,5vw,54px);border-radius:50%;background:rgba(255,61,87,.12);border:2px solid var(--red);display:flex;align-items:center;justify-content:center;animation:pulse-red 1.6s ease-in-out infinite;box-shadow:0 0 12px rgba(255,61,87,.5);}
 .warn-icon svg{width:28px;height:28px;}
+
+/* CHANGELOG MODAL */
+#changelogModal{position:fixed;inset:0;background:rgba(5,8,15,.92);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:1000;}
+#changelogModal.show{display:flex;}
+.cl-box{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;max-width:520px;width:90%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 40px rgba(0,212,255,.1);}
+.cl-head{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.cl-head-title{font-family:var(--fb-sans);font-size:16px;font-weight:800;color:var(--cyan);letter-spacing:1px;}
+.cl-head-sub{font-family:var(--fb-sans);font-size:10px;color:var(--text3);margin-top:2px;}
+.cl-close{background:rgba(255,61,87,.1);border:1px solid rgba(255,61,87,.3);color:var(--red);width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cl-body{overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:18px;}
+.cl-section-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.cl-section-line{height:1px;width:18px;flex-shrink:0;}
+.cl-section-label{font-family:var(--fb-sans);font-size:10px;font-weight:700;letter-spacing:2px;}
+.cl-section-hr{flex:1;height:1px;background:var(--border);}
+.cl-list{display:flex;flex-direction:column;gap:6px;}
+.cl-item{font-family:var(--fb-sans);font-size:11px;color:var(--text2);display:flex;align-items:flex-start;gap:8px;line-height:1.5;}
+.cl-item::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;flex-shrink:0;margin-top:5px;}
+.cl-cyan .cl-section-line{background:var(--cyan);}
+.cl-cyan .cl-section-label{color:var(--cyan);}
+.cl-cyan .cl-item::before{background:var(--cyan);}
+.cl-green .cl-section-line{background:var(--green);}
+.cl-green .cl-section-label{color:var(--green);}
+.cl-green .cl-item::before{background:var(--green);}
+.cl-amber .cl-section-line{background:var(--amber);}
+.cl-amber .cl-section-label{color:var(--amber);}
+.cl-amber .cl-item::before{background:var(--amber);}
+.cl-foot{padding:12px 22px;border-top:1px solid var(--border);flex-shrink:0;display:flex;justify-content:space-between;align-items:center;}
+.cl-foot-copy{font-family:var(--fb-sans);font-size:10px;color:var(--text3);}
+.cl-foot-btn{font-family:var(--fb-sans);font-size:11px;font-weight:600;padding:6px 16px;border-radius:5px;border:1px solid rgba(0,212,255,.3);color:var(--cyan);background:rgba(0,212,255,.08);cursor:pointer;}
 </style>
 </head>
 <body>
@@ -419,22 +495,23 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <div class="hero">
   <div class="hero-left">
     <div class="hero-adb-icon">
-      <dotlottie-player src="/lottie-files/TalkBotAnimation.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+      <dotlottie-player src="/lottie-files/TalkBotAnimation.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>
     </div>
     <div class="hero-adb-info">
-      <div class="hero-adb-label">Callback <br> Control System</div>
-      <div class="hero-adb-port">port 3000 · v2.0</div>
+      <div class="hero-adb-label">Callback<br>Control System</div>
+      <div class="hero-adb-port">
+        port 3000 · v2.0
+        <span class="cl-trigger" onclick="document.getElementById('changelogModal').classList.add('show')" title="Apa yang baru?">★</span>
+      </div>
     </div>
     <div class="hero-divider"></div>
     <div style="display:flex;align-items:center;justify-content:center;">
-      <img src="/lottie-files/pnes.png" style="height:50px;width:auto;object-fit:contain;" alt="PLN">
+      <img src="/lottie-files/pnes.png" style="height:clamp(28px,4vw,50px);width:auto;object-fit:contain;" alt="PLN">
     </div>
   </div>
-
   <div class="hero-center">
     <div class="hero-title">COMMAND CENTER</div>
   </div>
-
   <div class="hero-right">
     <div id="adbBadge" class="hero-device-badge off">Mengecek device...</div>
     <div id="devSerial" class="hero-adb-port" style="margin-top:4px;">Serial: Menunggu...</div>
@@ -445,69 +522,60 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <div class="adb-panel">
   <div class="adb-body">
     <div class="dev-icon" id="devIcon">
-      <dotlottie-player src="/lottie-files/phone.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
+      <dotlottie-player src="/lottie-files/phone.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>
     </div>
     <div class="dev-info">
       <div class="dev-name" id="devName">Menunggu device...</div>
+      <div class="dev-serial" id="devSerialSub"></div>
       <div class="dev-tags" id="devTags">
         <span class="tag ta">Disconnected</span>
       </div>
     </div>
-
     <div class="adb-actions">
-      <button class="btn btn-start" onclick="doStart()">▶ Mulai Screenshot</button>
+      <button class="btn btn-start" onclick="doStart()">▶ Mulai</button>
       <button class="btn btn-stop"  onclick="doStop()">⏹ Stop</button>
     </div>
-
     <div class="prog-sec">
       <div class="prog-lbl">Progress Sesi Ini</div>
       <div class="prog-nums"><span id="pDone">0</span> / <span id="pTotal">0</span></div>
       <div class="prog-sub">screenshot diambil</div>
-      <div class="prog-bar"><div id="progFill" class="prog-fill"></div></div>
+      <div class="prog-outer" id="progOuter">
+        <div class="prog-track">
+          <div class="prog-fill" id="progFill"></div>
+        </div>
+        <div class="prog-glow" id="progGlow"></div>
+        <div class="prog-head" id="progHead"></div>
+        <svg id="progParticles" style="position:absolute;top:50%;left:0;width:100%;height:1px;overflow:visible;pointer-events:none;"></svg>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- STAT CARDS -->
 <div class="stat-grid">
-  <!-- TOTAL KONTAK -->
   <div class="sc cc">
-    <div class="sc-lbl">Total Kontak</div>
+    <div class="sc-lbl">TOTAL KONTAK<span class="tip" data-tip="Jumlah seluruh kontak yang dimuat dari Google Spreadsheet">?</span></div>
     <div class="sc-val" id="stTotal">0</div>
     <div class="sc-desc">dari spreadsheet</div>
-    <div class="sc-bg">
-      <dotlottie-player src="/lottie-files/Document OCR Scan.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
-    </div>
+    <div class="sc-bg"><dotlottie-player src="/lottie-files/Document OCR Scan.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player></div>
   </div>
-
-  <!-- SELESAI -->
   <div class="sc cg">
-    <div class="sc-lbl">Selesai</div>
+    <div class="sc-lbl">SELESAI<span class="tip" data-tip="Kontak yang screenshot-nya berhasil diambil">?</span></div>
     <div class="sc-val" id="stDone">0</div>
     <div class="sc-desc">screenshot diambil</div>
-    <div class="sc-bg">
-      <dotlottie-player src="/lottie-files/check loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
-    </div>
+    <div class="sc-bg"><dotlottie-player src="/lottie-files/check loop.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player></div>
   </div>
-
-  <!-- PENDING -->
   <div class="sc ca">
-    <div class="sc-lbl">Pending</div>
+    <div class="sc-lbl">PENDING<span class="tip" data-tip="Kontak yang belum diproses dan masih menunggu antrian">?</span></div>
     <div class="sc-val" id="stPending">0</div>
     <div class="sc-desc">menunggu antrian</div>
-    <div class="sc-bg">
-      <dotlottie-player src="/lottie-files/Clock_loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
-    </div>
+    <div class="sc-bg"><dotlottie-player src="/lottie-files/Clock_loop.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player></div>
   </div>
-
-  <!-- GAGAL -->
   <div class="sc cr">
-    <div class="sc-lbl">Gagal</div>
+    <div class="sc-lbl">GAGAL<span class="tip" data-tip="Screenshot gagal diambil setelah melebihi batas retry">?</span></div>
     <div class="sc-val" id="stFailed">0</div>
     <div class="sc-desc">perlu dicek ulang</div>
-    <div class="sc-bg">
-      <dotlottie-player src="/lottie-files/Cross_loop.json" background="transparent" speed="1" style="width: 100%; height: 100%;" loop autoplay></dotlottie-player>
-    </div>
+    <div class="sc-bg"><dotlottie-player src="/lottie-files/Cross_loop.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player></div>
   </div>
 </div>
 
@@ -515,19 +583,17 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   <!-- GALLERY -->
   <div class="panel">
     <div class="ph">
-      <div class="pt">Galeri Screenshot</div>
+      <div class="pt">GALERI SCREENSHOT<span class="tip" data-tip="Tampilan thumbnail semua screenshot yang berhasil diambil">?</span></div>
       <span class="ml" id="imgLbl">0 file</span>
     </div>
-    <div id="gallery" class="g-grid">
-      <div class="g-empty">Belum ada screenshot</div>
-    </div>
+    <div id="gallery" class="g-grid"><div class="g-empty">Belum ada screenshot</div></div>
   </div>
 
   <!-- TABLE -->
   <div class="panel">
     <div class="ph">
-      <div class="pt">Rincian Per Kontak</div>
-      <div class="pa" style="display:flex;align-items:center;gap:8px;">
+      <div class="pt">RINCIAN PER KONTAK<span class="tip" data-tip="Log status proses screenshot untuk setiap kontak dalam sesi ini">?</span></div>
+      <div class="pa" style="display:flex;align-items:center;gap:6px;">
         <span class="ml" id="rincianCount">0 data</span>
         <button class="mb mbc" onclick="doRefresh()">↻</button>
       </div>
@@ -541,15 +607,14 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   </div>
 
   <!-- LOGS & CONFIG -->
-  <div style="display:flex;flex-direction:column;gap:14px;">
+  <div style="display:flex;flex-direction:column;gap:clamp(6px,1vw,14px);">
     <div class="panel">
       <div class="ph">
-        <div class="pt"><span id="runLottie" class="pdot-lottie"></span> Terminal Log</div>
+        <div class="pt"><span id="runDot" style="display:none;" class="log-running-dot"></span><span id="runLottie" class="pdot-lottie"></span> TERMINAL LOG</div>
         <button class="mb mba" onclick="clearLog()">Clear</button>
       </div>
       <div id="logBody" class="log-body"></div>
     </div>
-
     <div class="panel">
       <div class="ph"><div class="pt">⚙ Konfigurasi</div></div>
       <div class="cfg-body">
@@ -577,20 +642,104 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <div class="footer">
   <a href="https://github.com/heruahmadsidik/bot-sms-screenshot" target="_blank" class="footer-gh">⎇ GitHub Repository</a>
   <div style="text-align:right;">
-    <div style="font-family:var(--fb-sans);font-size:11px;color:var(--text2);">Built by: Heru Ahmad Sidik</div>
-    <div style="font-family:var(--fb-sans);font-size:10px;color:var(--text3);">&#174; Copyright 2026</div>
+    <div style="font-family:var(--fb-sans);font-size:clamp(9px,1vw,11px);color:var(--text2);">Built by: Heru Ahmad Sidik</div>
+    <div style="font-family:var(--fb-sans);font-size:clamp(8px,0.9vw,10px);color:var(--text3);">&#174; Copyright 2026</div>
   </div>
 </div>
-
 </div>
 
 <input type="file" id="filePickerInput" onchange="document.getElementById('cfgAdb').value=this.files[0].name" />
 
+<!-- IMAGE VIEWER -->
 <div id="viewer" onclick="if(event.target===this)this.classList.remove('show')">
   <div class="vbox">
     <button class="vcls" onclick="document.getElementById('viewer').classList.remove('show')">✕</button>
     <img id="vImg" src="" alt="">
     <div class="vcap" id="vCap"></div>
+  </div>
+</div>
+
+<!-- CHANGELOG MODAL -->
+<div id="changelogModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="cl-box">
+
+    <div class="cl-head">
+      <div>
+        <div class="cl-head-title">Apa yang Baru di V2.0</div>
+        <div class="cl-head-sub">Bot SMS — Command Center · 2026</div>
+      </div>
+      <button class="cl-close" onclick="document.getElementById('changelogModal').classList.remove('show')">✕</button>
+    </div>
+
+    <div class="cl-body">
+
+      <!-- UI -->
+      <div class="cl-cyan">
+        <div class="cl-section-head">
+          <div class="cl-section-line"></div>
+          <div class="cl-section-label">UI</div>
+          <div class="cl-section-hr"></div>
+        </div>
+        <div class="cl-list">
+          <div class="cl-item">Penambahan simbol dan logo dari file lokal</div>
+          <div class="cl-item">Tampilan menyesuaikan ukuran jendela browser</div>
+          <div class="cl-item">Tampilan diperbarui setiap 1,5 detik secara real time</div>
+          <div class="cl-item">Penambahan status koneksi devices</div>
+          <div class="cl-item">Penambahan detail seri dan kode devices</div>
+          <div class="cl-item">Penambahan status sistem operasi Android</div>
+          <div class="cl-item">Penambahan status kondisi layar devices</div>
+          <div class="cl-item">Penambahan tombol stop untuk menghentikan proses</div>
+          <div class="cl-item">Penambahan animasi progres sesi yang berlangsung</div>
+          <div class="cl-item">Penambahan statistik sesi real time</div>
+          <div class="cl-item">Penambahan tampilan galeri screenshot</div>
+          <div class="cl-item">Penambahan sinkronisasi rincian per kontak</div>
+          <div class="cl-item">Penambahan console-log</div>
+          <div class="cl-item">Penambahan menu konfigurasi</div>
+          <div class="cl-item">Penambahan tooltip</div>
+          <div class="cl-item">Penambahan link repository GitHub</div>
+        </div>
+      </div>
+
+      <!-- FITUR -->
+      <div class="cl-green">
+        <div class="cl-section-head">
+          <div class="cl-section-line"></div>
+          <div class="cl-section-label">FITUR</div>
+          <div class="cl-section-hr"></div>
+        </div>
+        <div class="cl-list">
+          <div class="cl-item">Menghentikan proses dengan tombol STOP</div>
+          <div class="cl-item">Proses otomatis jeda saat layar mati</div>
+          <div class="cl-item">Proses otomatis tidak memulai saat tidak ada devices terhubung</div>
+          <div class="cl-item">Rincian masalah yang lebih detail di terminal log</div>
+          <div class="cl-item">Sinkronisasi dari spreadsheet real time</div>
+        </div>
+      </div>
+
+      <!-- AKAN DATANG -->
+      <div class="cl-amber">
+        <div class="cl-section-head">
+          <div class="cl-section-line"></div>
+          <div class="cl-section-label">AKAN DATANG</div>
+          <div class="cl-section-hr"></div>
+        </div>
+        <div class="cl-list">
+          <div class="cl-item">Penambahan status kekuatan sinyal</div>
+          <div class="cl-item">Fungsi auto-awake layar devices</div>
+          <div class="cl-item">Fungsi mengembalikan default-awake setelah selesai proses</div>
+          <div class="cl-item">Penambahan konfigurasi lokasi file Node.js</div>
+          <div class="cl-item">Penambahan konfigurasi lokasi file simpan gambar</div>
+          <div class="cl-item">Penambahan konfigurasi cls · echo off · cache CMD</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="cl-foot">
+      <div class="cl-foot-copy">Built by: Heru Ahmad Sidik · © 2026</div>
+      <button class="cl-foot-btn" onclick="document.getElementById('changelogModal').classList.remove('show')">Tutup</button>
+    </div>
+
   </div>
 </div>
 
@@ -640,6 +789,50 @@ async function loadSheet(){
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ===== NEON PROGRESS =====
+let lastPct = 0;
+function updateProgressBar(pct) {
+  const pStr = pct + '%';
+  const fill = document.getElementById('progFill');
+  const glow = document.getElementById('progGlow');
+  const head = document.getElementById('progHead');
+  if(fill) fill.style.width = pStr;
+  if(glow) glow.style.width = pStr;
+  if(head) head.style.left = pStr;
+  if(pct > 0 && pct < 100 && pct !== lastPct) spawnParticles(pct);
+  lastPct = pct;
+}
+
+function spawnParticles(pct) {
+  const svg = document.getElementById('progParticles');
+  const outer = document.getElementById('progOuter');
+  if(!svg || !outer) return;
+  const w = outer.offsetWidth;
+  const x = (pct / 100) * w;
+  for(let i = 0; i < 4; i++) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    const dx = (Math.random() - 0.5) * 32;
+    const dy = -(Math.random() * 20 + 6);
+    el.setAttribute('cx', x);
+    el.setAttribute('cy', 0);
+    el.setAttribute('r', Math.random() * 1.8 + 0.8);
+    el.setAttribute('fill', Math.random() > 0.5 ? '#00d4ff' : '#7c4dff');
+    svg.appendChild(el);
+    let start = null;
+    const dur = 800 + Math.random() * 500;
+    (function anim(ts){
+      if(!start) start = ts;
+      const t = Math.min((ts - start) / dur, 1);
+      const e = 1 - Math.pow(1 - t, 3);
+      el.setAttribute('cx', x + dx * e);
+      el.setAttribute('cy', dy * e);
+      el.setAttribute('opacity', 0.9 * (1 - t));
+      if(t < 1) requestAnimationFrame(anim); else el.remove();
+    })(performance.now());
+  }
+}
+// =========================
+
 async function poll(){
   const [s,l,d]=await Promise.all([
     fetch('/status').then(r=>r.json()).catch(()=>null),
@@ -649,6 +842,7 @@ async function poll(){
   if(!s) return;
 
   const b = document.getElementById('adbBadge');
+  const runDot = document.getElementById('runDot');
   const runLottie = document.getElementById('runLottie');
   const liveAnim = '<dotlottie-player src="https://lottie.host/67702f74-3382-4113-9827-023a39775079/U7H6XpPZ6H.json" background="transparent" speed="1" style="width:100%;height:100%;" loop autoplay></dotlottie-player>';
 
@@ -661,12 +855,20 @@ async function poll(){
     b.className = 'hero-device-badge';
     document.getElementById('devName').textContent = d.info.name || 'Device';
     document.getElementById('devSerial').textContent = 'Serial: ' + (d.info.serial || '—');
-    document.getElementById('devTags').innerHTML = '<span class="tag tg">Ready</span><span class="tag tc">Android '+d.info.android+'</span>';
+    document.getElementById('devSerialSub').textContent = 'Serial: ' + (d.info.serial || '—');
+    const screenTag = d.info.screenOn
+      ? '<span class="tag ts"><span class="screen-dot on"></span>Layar Hidup</span>'
+      : '<span class="tag ts-off"><span class="screen-dot off"></span>Layar Mati</span>';
+    document.getElementById('devTags').innerHTML =
+      '<span class="tag tg">Ready</span>' +
+      '<span class="tag tc">Android ' + d.info.android + '</span>' +
+      screenTag;
     if(!devIcon.querySelector('dotlottie-player')) devIcon.innerHTML = phoneAnim;
   } else {
     b.innerHTML = '● Terputus';
     b.className = 'hero-device-badge off';
     document.getElementById('devName').textContent = 'Device Tidak Ada';
+    document.getElementById('devSerialSub').textContent = '';
     document.getElementById('devTags').innerHTML = '<span class="tag ta">Disconnected</span>';
     if(!devIcon.querySelector('.warn-icon')) devIcon.innerHTML = warnAnim;
   }
@@ -680,19 +882,20 @@ async function poll(){
   document.getElementById('pDone').textContent=s.done;
   document.getElementById('pTotal').textContent=s.total;
 
-  const pf=document.getElementById('progFill');
-  pf.style.width=s.progress+'%';
-  pf.className = s.running ? 'prog-fill prog-fill-active' : 'prog-fill';
+  updateProgressBar(s.progress);
 
   if(s.running) {
+    runDot.style.display = 'inline-block';
     if(!runLottie.innerHTML) runLottie.innerHTML = liveAnim;
   } else {
+    runDot.style.display = 'none';
     runLottie.innerHTML = '';
   }
 
   if(s.lastImages && s.lastImages.length){
     document.getElementById('rincianCount').textContent = s.lastImages.length + ' data';
-    document.getElementById('rincianBody').innerHTML = s.lastImages.map(img => {
+    const shown = s.lastImages.slice(0, 150);
+    document.getElementById('rincianBody').innerHTML = shown.map(img => {
       const isFailed = img.status === 'FAILED';
       const badge = isFailed
         ? '<span class="bd-fail">FAILED</span>'
@@ -722,7 +925,7 @@ async function poll(){
   if(l.length!==prevLogLen){
     prevLogLen=l.length;
     const lb=document.getElementById('logBody');
-    const typeMap={ok:'OK',warn:'WARN',error:'ERR',info:'INFO',log:'LOG'};
+    const typeMap={ok:'OK',warn:'WAIT',error:'ERR',info:'INFO',log:'LOG'};
     const cls={ok:'lok',warn:'lwarn',error:'lerr',info:'linf',log:'llog'};
     lb.innerHTML=l.map((log,i)=>(
       '<div class="le '+(i===l.length-1?'latest':'')+'"><span class="lt">'+log.time+'</span><span class="ltype '+(cls[log.type]||'llog')+'">'+(typeMap[log.type]||'LOG')+'</span><span class="lm">'+esc(log.text)+'</span></div>'
